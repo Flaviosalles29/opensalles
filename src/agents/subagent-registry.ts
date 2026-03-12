@@ -1243,6 +1243,7 @@ export function registerSubagentRun(params: {
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  extraSystemPrompt?: string;
 }) {
   const now = Date.now();
   const cfg = loadConfig();
@@ -1276,6 +1277,7 @@ export function registerSubagentRun(params: {
     attachmentsDir: params.attachmentsDir,
     attachmentsRootDir: params.attachmentsRootDir,
     retainAttachmentsOnKeep: params.retainAttachmentsOnKeep,
+    extraSystemPrompt: params.extraSystemPrompt,
   });
   ensureListener();
   persistSubagentRuns();

@@ -711,6 +711,7 @@ export async function spawnSubagentDirect(
       attachmentsDir: attachmentAbsDir,
       attachmentsRootDir: attachmentRootDir,
       retainAttachmentsOnKeep: retainOnSessionKeep,
+      extraSystemPrompt: childSystemPrompt,
     });
   } catch (err) {
     if (attachmentAbsDir) {
