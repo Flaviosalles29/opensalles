@@ -24,12 +24,6 @@ function installTmpDirHarness(params: { prefix: string }) {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), params.prefix));
-describe("memory plugin e2e", () => {
-  let tmpDir: string;
-  let dbPath: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-test-"));
     dbPath = path.join(tmpDir, "lancedb");
   });
 
