@@ -85,6 +85,9 @@ const OPEN_DM_POLICY_ALLOW_FROM_RE =
 
 const CONFIG_AUDIT_LOG_FILENAME = "config-audit.jsonl";
 const loggedInvalidConfigs = new Set<string>();
+// Track the last-emitted warning fingerprint per config path so that repeated
+// config loads (config watcher, gateway polling) do not spam the same warnings.
+const lastLoggedWarningFingerprint = new Map<string, string>();
 
 type ConfigWriteAuditResult = "rename" | "copy-fallback" | "failed";
 
@@ -735,6 +738,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
     try {
       maybeLoadDotEnvForConfig(deps.env);
       if (!deps.fs.existsSync(configPath)) {
+        // Config file missing — clear stale warning fingerprint so that
+        // if the file reappears with the same warnings, they are logged.
+        lastLoggedWarningFingerprint.delete(configPath);
         if (shouldEnableShellEnvFallback(deps.env) && !shouldDeferShellEnvFallback(deps.env)) {
           loadShellEnvFallback({
             enabled: true,
@@ -747,6 +753,10 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         return {};
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
+      // Reset warning dedup state on every reload attempt so that
+      // failed reloads (which throw before reaching the warning branch)
+      // don't leave stale fingerprints that suppress future warnings.
+      lastLoggedWarningFingerprint.delete(configPath);
       const parsed = deps.json5.parse(raw);
       const readResolution = resolveConfigForRead(
         resolveConfigIncludesForRead(parsed, configPath, deps),
@@ -793,7 +803,11 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
               `- ${sanitizeTerminalText(iss.path || "<root>")}: ${sanitizeTerminalText(iss.message)}`,
           )
           .join("\n");
-        deps.logger.warn(`Config warnings:\\n${details}`);
+        const warningFingerprint = hashConfigRaw(details);
+        if (lastLoggedWarningFingerprint.get(configPath) !== warningFingerprint) {
+          lastLoggedWarningFingerprint.set(configPath, warningFingerprint);
+          deps.logger.warn(`Config warnings:\\n${details}`);
+        }
       }
       warnIfConfigFromFuture(validated.config, deps.logger);
       const cfg = applyTalkConfigNormalization(
