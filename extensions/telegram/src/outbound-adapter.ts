@@ -12,6 +12,8 @@ import { markdownToTelegramHtmlChunks } from "./format.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
 import { sendMessageTelegram } from "./send.js";
 
+export const TELEGRAM_TEXT_CHUNK_LIMIT = 4000;
+
 type TelegramSendFn = typeof sendMessageTelegram;
 type TelegramSendOpts = Parameters<TelegramSendFn>[2];
 
@@ -98,7 +100,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   chunker: markdownToTelegramHtmlChunks,
   chunkerMode: "markdown",
-  textChunkLimit: 4000,
+  textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
   shouldSkipPlainTextSanitization: ({ payload }) => Boolean(payload.channelData),
   resolveEffectiveTextChunkLimit: ({ fallbackLimit }) =>
     typeof fallbackLimit === "number" ? Math.min(fallbackLimit, 4096) : 4096,
