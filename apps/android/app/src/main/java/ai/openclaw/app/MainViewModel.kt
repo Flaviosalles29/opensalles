@@ -3,6 +3,7 @@ package ai.openclaw.app
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import ai.openclaw.app.gateway.GatewayEndpoint
+import ai.openclaw.app.gateway.GatewayTrustPrompt
 import ai.openclaw.app.chat.OutgoingAttachment
 import ai.openclaw.app.node.CameraCaptureManager
 import ai.openclaw.app.node.CanvasController
@@ -29,7 +30,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
   val statusText: StateFlow<String> = runtime.statusText
   val serverName: StateFlow<String?> = runtime.serverName
   val remoteAddress: StateFlow<String?> = runtime.remoteAddress
-  val pendingGatewayTrust: StateFlow<NodeRuntime.GatewayTrustPrompt?> = runtime.pendingGatewayTrust
+  val pendingGatewayTrust: StateFlow<GatewayTrustPrompt?> = runtime.pendingGatewayTrust
   val isForeground: StateFlow<Boolean> = runtime.isForeground
   val seamColorArgb: StateFlow<Long> = runtime.seamColorArgb
   val mainSessionKey: StateFlow<String> = runtime.mainSessionKey
