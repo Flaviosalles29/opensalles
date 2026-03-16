@@ -187,6 +187,35 @@ describe("dispatchPreparedSlackMessage native Slack streaming", () => {
     });
     expect(deliverRepliesMock).not.toHaveBeenCalled();
   });
+
+  it("falls back to normal delivery for later payloads after a block finalize stops the stream", async () => {
+    dispatchInboundMessageMock.mockImplementation(
+      async (params: { dispatcher: { deliver: (payload: ReplyPayload) => Promise<void> } }) => {
+        await params.dispatcher.deliver({ text: "partial preview" });
+        await params.dispatcher.deliver({
+          text: "Final block reply",
+          channelData: {
+            slack: {
+              blocks: [{ type: "section", text: { type: "mrkdwn", text: "Final block reply" } }],
+            },
+          },
+        } as ReplyPayload);
+        await params.dispatcher.deliver({ text: "follow-up after blocks" });
+        return { queuedFinal: false, counts: { final: 2, block: 0 } };
+      },
+    );
+
+    await dispatchPreparedSlackMessage(createPreparedSlackMessage());
+
+    expect(startSlackStreamMock).toHaveBeenCalledOnce();
+    expect(stopSlackStreamMock).toHaveBeenCalledOnce();
+    expect(appendSlackStreamMock).not.toHaveBeenCalled();
+    expect(deliverRepliesMock).toHaveBeenCalledOnce();
+    expect(deliverRepliesMock.mock.calls[0]?.[0]).toMatchObject({
+      replies: [{ text: "follow-up after blocks" }],
+      replyThreadTs: "1000.2",
+    });
+  });
 });
 
 function createPreparedSlackMessage(): PreparedSlackMessage {

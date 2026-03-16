@@ -91,15 +91,15 @@ function buildClaudeUsageWindows(data: ClaudeUsageResponse): UsageWindow[] {
 }
 
 /**
- * Resolves the claude.ai session key from environment variables, cookie jar, or token.
+ * Resolves the claude.ai session key from explicit environment variables or
+ * the browser cookie jar.
  *
  * Priority:
  *   1. CLAUDE_AI_SESSION_KEY  — preferred, explicit session key
  *   2. CLAUDE_WEB_SESSION_KEY — alias for CLAUDE_AI_SESSION_KEY
  *   3. sessionKey in CLAUDE_WEB_COOKIE — extracted from full browser cookie string
- *   4. token — used directly if it starts with "sk-ant-"
  */
-function resolveSessionKey(token: string): string | undefined {
+function resolveSessionKey(): string | undefined {
   const direct =
     resolveClaudeRuntimeEnvVar("CLAUDE_AI_SESSION_KEY") ??
     resolveClaudeRuntimeEnvVar("CLAUDE_WEB_SESSION_KEY");
@@ -109,9 +109,6 @@ function resolveSessionKey(token: string): string | undefined {
   const fromCookie = readCookieValue(getClaudeWebCookieJar(), "sessionKey");
   if (fromCookie?.startsWith("sk-ant-")) {
     return fromCookie;
-  }
-  if (token.startsWith("sk-ant-")) {
-    return token;
   }
   return undefined;
 }
@@ -255,7 +252,7 @@ export async function fetchClaudeUsage(
     // Tokens lacking the user:profile OAuth scope get a 403. Fall back to the
     // claude.ai web API when a browser session key is available.
     if (res.status === 403 && message?.includes("scope requirement user:profile")) {
-      const sessionKey = resolveSessionKey(token);
+      const sessionKey = resolveSessionKey();
       if (sessionKey) {
         logVerbose("[usage:claude] OAuth scope missing — trying claude.ai web fallback");
         const web = await fetchClaudeWebUsage(

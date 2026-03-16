@@ -208,22 +208,15 @@ describe("fetchClaudeUsage", () => {
     expect(result.windows).toEqual([{ label: "5h", usedPercent: 9, resetAt: undefined }]);
   });
 
-  it("uses token directly as web session key when it starts with sk-ant-", async () => {
-    vi.stubEnv("CLAUDE_ORGANIZATION_ID", "org-token");
-
-    const mockFetch = createScopeFallbackFetch(async (url, init) => {
-      if (url.endsWith("/api/organizations/org-token/usage")) {
-        const headers = (init?.headers as Record<string, string> | undefined) ?? {};
-        expect(headers.Cookie).toContain("sessionKey=sk-ant-token-direct");
-        return makeResponse(200, { five_hour: { utilization: 5 } });
-      }
-      return makeResponse(404, "not found");
+  it("does not treat sk-ant API-like tokens as claude.ai session keys", async () => {
+    const mockFetch = createScopeFallbackFetch(async () => {
+      throw new Error("claude.ai fallback should not run without an explicit session key");
     });
 
-    const result = await fetchClaudeUsage("sk-ant-token-direct", 5000, mockFetch);
-    expect(result.error).toBeUndefined();
-    expect(result.plan).toBe("via claude.ai");
-    expect(result.windows).toHaveLength(1);
+    const result = await fetchClaudeUsage("sk-ant-api-token-direct", 5000, mockFetch);
+    expect(result.error).toBe("HTTP 403: missing scope requirement user:profile");
+    expect(result.windows).toHaveLength(0);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("skips org lookup when CLAUDE_ORGANIZATION_ID is set", async () => {

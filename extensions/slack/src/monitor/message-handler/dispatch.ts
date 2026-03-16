@@ -262,6 +262,11 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
           ),
           blocks: slackBlocks,
         });
+        // A block finalize ends the active stream. Later replies in the same
+        // dispatch cycle must fall back to normal delivery instead of trying
+        // to append to a stopped ChatStreamer session.
+        streamSession = null;
+        streamFailed = true;
         return;
       } catch (err) {
         runtime.error?.(
