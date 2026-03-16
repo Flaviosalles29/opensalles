@@ -12,7 +12,7 @@ import {
   buildAgentSessionKey,
   resolveThreadSessionKeys,
   type RoutePeer,
-} from "openclaw/plugin-sdk/routing";
+} from "openclaw/plugin-sdk/core";
 import {
   buildChannelConfigSchema,
   buildTokenChannelStatusSummary,
