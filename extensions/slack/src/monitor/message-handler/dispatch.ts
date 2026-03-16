@@ -254,6 +254,7 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
     const slackBlocks = readSlackReplyBlocks(payload);
     const trimmedText = payload.text?.trim() ?? "";
     if (streamSession && !streamFailed && !hasMedia(payload) && slackBlocks?.length) {
+      const activeThreadTs = streamSession.threadTs;
       try {
         await stopSlackStream({
           session: streamSession,
@@ -273,7 +274,7 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
           danger(`slack-stream: streaming API call failed: ${String(err)}, falling back`),
         );
         streamFailed = true;
-        await deliverNormally(payload, streamSession.threadTs);
+        await deliverNormally(payload, activeThreadTs);
         return;
       }
     }

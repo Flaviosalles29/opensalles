@@ -200,6 +200,51 @@ describe("usage controller date interpretation params", () => {
     expect(state.usageProviderSummaryError).toBeNull();
   });
 
+  it("ignores stale provider quota responses from older usage refreshes", async () => {
+    let resolveFirstQuota!: (value: unknown) => void;
+    const firstQuotaPromise = new Promise((resolve) => {
+      resolveFirstQuota = resolve;
+    });
+    let resolveSecondQuota!: (value: unknown) => void;
+    const secondQuotaPromise = new Promise((resolve) => {
+      resolveSecondQuota = resolve;
+    });
+
+    let quotaCallCount = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "usage.status") {
+        quotaCallCount += 1;
+        return quotaCallCount === 1 ? firstQuotaPromise : secondQuotaPromise;
+      }
+      return {};
+    });
+
+    const state = createState(request);
+
+    await loadUsage(state);
+    await loadUsage(state, { refreshProviderQuota: true });
+
+    resolveSecondQuota({
+      providers: [{ provider: "anthropic", windows: [], totalRequests: 20 }],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(state.usageProviderSummary).toEqual({
+      providers: [{ provider: "anthropic", windows: [], totalRequests: 20 }],
+    });
+    expect(state.usageProviderSummaryError).toBeNull();
+
+    resolveFirstQuota({
+      providers: [{ provider: "anthropic", windows: [], totalRequests: 5 }],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(state.usageProviderSummary).toEqual({
+      providers: [{ provider: "anthropic", windows: [], totalRequests: 20 }],
+    });
+    expect(state.usageProviderSummaryError).toBeNull();
+  });
+
   it("silently skips unsupported usage.status on older gateways and remembers it", async () => {
     const storage = createStorageMock();
     vi.stubGlobal("localStorage", storage as unknown as Storage);

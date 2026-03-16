@@ -63,6 +63,17 @@ const LEGACY_USAGE_STATUS_RETRY_MS = 5 * 60 * 1000;
 let legacyUsageDateParamsCache: Set<string> | null = null;
 let legacyUsageStatusCache: Map<string, number> | null = null;
 let usageQuotaMeta = new WeakMap<UsageState, UsageQuotaMeta>();
+let usageLoadGeneration = new WeakMap<UsageState, number>();
+
+function beginUsageLoad(state: UsageState): number {
+  const nextGeneration = (usageLoadGeneration.get(state) ?? 0) + 1;
+  usageLoadGeneration.set(state, nextGeneration);
+  return nextGeneration;
+}
+
+function isLatestUsageLoad(state: UsageState, generation: number): boolean {
+  return usageLoadGeneration.get(state) === generation;
+}
 
 function getLocalStorage(): Storage | null {
   return getSafeLocalStorage();
@@ -319,10 +330,14 @@ export async function loadUsage(
   if (state.usageLoading) {
     return;
   }
+  const loadGeneration = beginUsageLoad(state);
   state.usageLoading = true;
   state.usageError = null;
   const gatewayKey = resolveGatewayCompatibilityKey(state);
   const loadProviderQuota = async () => {
+    if (!isLatestUsageLoad(state, loadGeneration)) {
+      return;
+    }
     const quotaMetaForState = usageQuotaMeta.get(state);
     const shouldRefreshProviderQuota = overrides?.refreshProviderQuota === true;
     const shouldProbeCompatibility = shouldRefreshProviderQuota || shouldRequestUsageStatus(state);
@@ -333,11 +348,20 @@ export async function loadUsage(
       quotaMetaForState.status === "error" ||
       (quotaMetaForState.status === "unsupported" && shouldProbeCompatibility);
     if (!shouldLoadQuota) {
+      if (!isLatestUsageLoad(state, loadGeneration)) {
+        return;
+      }
       state.usageProviderSummaryError = null;
+      return;
+    }
+    if (!isLatestUsageLoad(state, loadGeneration)) {
       return;
     }
     state.usageProviderSummaryError = null;
     if (!shouldProbeCompatibility) {
+      if (!isLatestUsageLoad(state, loadGeneration)) {
+        return;
+      }
       state.usageProviderSummary = null;
       state.usageProviderSummaryError = null;
       usageQuotaMeta.set(state, { gatewayKey, status: "unsupported" });
@@ -346,8 +370,9 @@ export async function loadUsage(
     try {
       const quotaRes = await client.request("usage.status");
       // Discard the result if the client changed while the request was in-flight
-      // (e.g. the user switched gateways before it completed).
-      if (state.client !== client) {
+      // (e.g. the user switched gateways before it completed), or if a newer
+      // usage refresh already launched another quota request.
+      if (state.client !== client || !isLatestUsageLoad(state, loadGeneration)) {
         return;
       }
       forgetLegacyUsageStatus(state);
@@ -355,7 +380,7 @@ export async function loadUsage(
       state.usageProviderSummaryError = null;
       usageQuotaMeta.set(state, { gatewayKey, status: "loaded" });
     } catch (err) {
-      if (state.client !== client) {
+      if (state.client !== client || !isLatestUsageLoad(state, loadGeneration)) {
         return;
       }
       if (isLegacyUsageStatusUnsupportedError(err)) {
@@ -444,6 +469,7 @@ export const __test = {
     legacyUsageDateParamsCache = null;
     legacyUsageStatusCache = null;
     usageQuotaMeta = new WeakMap<UsageState, UsageQuotaMeta>();
+    usageLoadGeneration = new WeakMap<UsageState, number>();
   },
 };
 
