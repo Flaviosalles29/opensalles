@@ -398,7 +398,7 @@ export function renderApp(state: AppViewState) {
       },
       onSlashCommand: (cmd) => {
         state.setTab("chat" as import("./navigation.ts").Tab);
-        state.chatMessage = cmd.endsWith(" ") ? cmd : `${cmd} `;
+        state.handleChatDraftChange(cmd.endsWith(" ") ? cmd : `${cmd} `);
       },
     })}
     <div
@@ -639,6 +639,7 @@ export function renderApp(state: AppViewState) {
                 onSessionKeyChange: (next) => {
                   state.sessionKey = next;
                   state.chatMessage = "";
+                  state.resetChatInputHistoryNavigation();
                   state.resetToolStream();
                   state.applySettings({
                     ...state.settings,
@@ -1334,6 +1335,7 @@ export function renderApp(state: AppViewState) {
                 onSessionKeyChange: (next) => {
                   state.sessionKey = next;
                   state.chatMessage = "";
+                  state.resetChatInputHistoryNavigation();
                   state.chatAttachments = [];
                   state.chatStream = null;
                   state.chatStreamStartedAt = null;
@@ -1386,8 +1388,9 @@ export function renderApp(state: AppViewState) {
                 },
                 onChatScroll: (event) => state.handleChatScroll(event),
                 getDraft: () => state.chatMessage,
-                onDraftChange: (next) => (state.chatMessage = next),
+                onDraftChange: (next) => state.handleChatDraftChange(next),
                 onRequestUpdate: requestHostUpdate,
+                onHistoryKeydown: (input) => state.handleChatInputHistoryKey(input),
                 attachments: state.chatAttachments,
                 onAttachmentsChange: (next) => (state.chatAttachments = next),
                 onSend: () => state.handleSendChat(),
