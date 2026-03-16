@@ -6,6 +6,7 @@ import { detectBundleManifestFormat, loadBundleManifest } from "./bundle-manifes
 import {
   DEFAULT_PLUGIN_ENTRY_CANDIDATES,
   getPackageManifestMetadata,
+  loadPluginManifest,
   resolvePackageExtensionEntries,
   type OpenClawPackageManifest,
   type PackageManifest,
@@ -323,10 +324,21 @@ function readPackageManifest(dir: string, rejectHardlinks = true): PackageManife
 
 function deriveIdHint(params: {
   filePath: string;
+  rootDir: string;
   packageName?: string;
   hasMultipleExtensions: boolean;
+  rejectHardlinks?: boolean;
 }): string {
   const base = path.basename(params.filePath, path.extname(params.filePath));
+  const manifestResult = loadPluginManifest(params.rootDir, params.rejectHardlinks ?? true);
+  const manifestId = manifestResult.ok ? manifestResult.manifest.id.trim() : "";
+  if (manifestId) {
+    if (!params.hasMultipleExtensions) {
+      return manifestId;
+    }
+    return `${manifestId}/${base}`;
+  }
+
   const rawPackageName = params.packageName?.trim();
   if (!rawPackageName) {
     return base;
@@ -553,8 +565,10 @@ function discoverInDirectory(params: {
           seen: params.seen,
           idHint: deriveIdHint({
             filePath: resolved,
+            rootDir: fullPath,
             packageName: manifest?.name,
             hasMultipleExtensions: extensions.length > 1,
+            rejectHardlinks,
           }),
           source: resolved,
           ...(setupSource ? { setupSource } : {}),
@@ -683,8 +697,10 @@ function discoverFromPath(params: {
           seen: params.seen,
           idHint: deriveIdHint({
             filePath: source,
+            rootDir: resolved,
             packageName: manifest?.name,
             hasMultipleExtensions: extensions.length > 1,
+            rejectHardlinks,
           }),
           source,
           ...(setupSource ? { setupSource } : {}),
