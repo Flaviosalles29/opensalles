@@ -95,12 +95,9 @@ export function buildProviderPluginMethodChoice(providerId: string, methodId: st
   return `${PROVIDER_PLUGIN_CHOICE_PREFIX}${providerId.trim()}:${methodId.trim()}`;
 }
 
-export function resolveProviderWizardOptions(params: {
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-}): ProviderWizardOption[] {
-  const providers = resolvePluginProviders(params);
+export function buildProviderWizardOptionsFromProviders(
+  providers: ProviderPlugin[],
+): ProviderWizardOption[] {
   const options: ProviderWizardOption[] = [];
 
   for (const provider of providers) {
@@ -150,6 +147,14 @@ export function resolveProviderWizardOptions(params: {
   return options;
 }
 
+export function resolveProviderWizardOptions(params: {
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): ProviderWizardOption[] {
+  return buildProviderWizardOptionsFromProviders(resolvePluginProviders(params));
+}
+
 function resolveModelPickerChoiceValue(
   provider: ProviderPlugin,
   modelPicker: ProviderPluginWizardModelPicker,
@@ -164,12 +169,9 @@ function resolveModelPickerChoiceValue(
   return buildProviderPluginMethodChoice(provider.id, provider.auth[0]?.id ?? "default");
 }
 
-export function resolveProviderModelPickerEntries(params: {
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-}): ProviderModelPickerEntry[] {
-  const providers = resolvePluginProviders(params);
+export function buildProviderModelPickerEntriesFromProviders(
+  providers: ProviderPlugin[],
+): ProviderModelPickerEntry[] {
   const entries: ProviderModelPickerEntry[] = [];
 
   for (const provider of providers) {
@@ -185,6 +187,14 @@ export function resolveProviderModelPickerEntries(params: {
   }
 
   return entries;
+}
+
+export function resolveProviderModelPickerEntries(params: {
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): ProviderModelPickerEntry[] {
+  return buildProviderModelPickerEntriesFromProviders(resolvePluginProviders(params));
 }
 
 export function resolveProviderPluginChoice(params: {

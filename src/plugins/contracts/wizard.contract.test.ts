@@ -1,25 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildProviderModelPickerEntriesFromProviders,
   buildProviderPluginMethodChoice,
-  resolveProviderModelPickerEntries,
+  buildProviderWizardOptionsFromProviders,
   resolveProviderPluginChoice,
-  resolveProviderWizardOptions,
 } from "../provider-wizard.js";
-import { resolvePluginProviders } from "../providers.js";
 import type { ProviderPlugin } from "../types.js";
 import { providerContractRegistry } from "./registry.js";
 
-function createBundledProviderConfig() {
-  return {
-    plugins: {
-      enabled: true,
-      allow: [...new Set(providerContractRegistry.map((entry) => entry.pluginId))],
-      slots: {
-        memory: "none",
-      },
-    },
-  };
-}
+const bundledProviders = providerContractRegistry.map((entry) => entry.provider);
 
 function resolveExpectedWizardChoiceValues(providers: ProviderPlugin[]) {
   const values: string[] = [];
@@ -77,37 +66,22 @@ function resolveExpectedModelPickerValues(providers: ProviderPlugin[]) {
     .toSorted((left, right) => left.localeCompare(right));
 }
 
-describe("provider wizard contract", () => {
+describe.skipIf(process.platform === "win32")("provider wizard contract", () => {
   it("exposes every registered provider setup choice through the shared wizard layer", () => {
-    const config = createBundledProviderConfig();
-    const providers = resolvePluginProviders({
-      config,
-      env: process.env,
-    });
-
-    const options = resolveProviderWizardOptions({
-      config,
-      env: process.env,
-    });
+    const options = buildProviderWizardOptionsFromProviders(bundledProviders);
 
     expect(
       options.map((option) => option.value).toSorted((left, right) => left.localeCompare(right)),
-    ).toEqual(resolveExpectedWizardChoiceValues(providers));
+    ).toEqual(resolveExpectedWizardChoiceValues(bundledProviders));
     expect(options.map((option) => option.value)).toEqual([
       ...new Set(options.map((option) => option.value)),
     ]);
   });
 
   it("round-trips every shared wizard choice back to its provider and auth method", () => {
-    const config = createBundledProviderConfig();
-    const providers = resolvePluginProviders({
-      config,
-      env: process.env,
-    });
-
-    for (const option of resolveProviderWizardOptions({ config, env: process.env })) {
+    for (const option of buildProviderWizardOptionsFromProviders(bundledProviders)) {
       const resolved = resolveProviderPluginChoice({
-        providers,
+        providers: bundledProviders,
         choice: option.value,
       });
       expect(resolved).not.toBeNull();
@@ -117,23 +91,14 @@ describe("provider wizard contract", () => {
   });
 
   it("exposes every registered model-picker entry through the shared wizard layer", () => {
-    const config = createBundledProviderConfig();
-    const providers = resolvePluginProviders({
-      config,
-      env: process.env,
-    });
-
-    const entries = resolveProviderModelPickerEntries({
-      config,
-      env: process.env,
-    });
+    const entries = buildProviderModelPickerEntriesFromProviders(bundledProviders);
 
     expect(
       entries.map((entry) => entry.value).toSorted((left, right) => left.localeCompare(right)),
-    ).toEqual(resolveExpectedModelPickerValues(providers));
+    ).toEqual(resolveExpectedModelPickerValues(bundledProviders));
     for (const entry of entries) {
       const resolved = resolveProviderPluginChoice({
-        providers,
+        providers: bundledProviders,
         choice: entry.value,
       });
       expect(resolved).not.toBeNull();

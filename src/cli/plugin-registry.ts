@@ -55,6 +55,7 @@ export function ensurePluginRegistryLoaded(options?: { scope?: PluginRegistrySco
     config,
     workspaceDir,
     logger,
+    preferSetupRuntimeForChannelPlugins: scope === "configured-channels",
     ...(scope === "configured-channels"
       ? {
           onlyPluginIds: resolveConfiguredChannelPluginIds({

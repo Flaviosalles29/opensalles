@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearRuntimeAuthProfileStoreSnapshots } from "../../agents/auth-profiles/store.js";
 import { applyAuthChoiceLoadedPluginProvider } from "../../commands/auth-choice.apply.plugin-provider.js";
-import { resolvePreferredProviderForAuthChoice } from "../../commands/auth-choice.preferred-provider.js";
+import { resolvePreferredProviderForAuthChoiceFromPluginProviders } from "../../commands/auth-choice.preferred-provider.js";
 import type { AuthChoice } from "../../commands/onboard-types.js";
 import {
   createAuthTestLifecycle,
@@ -53,6 +53,10 @@ type StoredAuthProfile = {
 };
 
 const qwenPortalPlugin = (await import("../../../extensions/qwen-portal-auth/index.js")).default;
+const githubCopilotPlugin = (await import("../../../extensions/github-copilot/index.js")).default;
+const minimaxPlugin = (await import("../../../extensions/minimax/index.js")).default;
+const modelStudioPlugin = (await import("../../../extensions/modelstudio/index.js")).default;
+const ollamaPlugin = (await import("../../../extensions/ollama/index.js")).default;
 
 function registerProviders(...plugins: Array<{ register(api: OpenClawPluginApi): void }>) {
   const captured = createCapturedPluginRegistration();
@@ -101,6 +105,13 @@ describe("provider auth-choice contract", () => {
   });
 
   it("maps plugin-backed auth choices through the shared preferred-provider resolver", async () => {
+    const bundledProviders = registerProviders(
+      githubCopilotPlugin,
+      qwenPortalPlugin,
+      minimaxPlugin,
+      modelStudioPlugin,
+      ollamaPlugin,
+    );
     const scenarios = [
       { authChoice: "github-copilot" as const, expectedProvider: "github-copilot" },
       { authChoice: "qwen-portal" as const, expectedProvider: "qwen-portal" },
@@ -112,7 +123,10 @@ describe("provider auth-choice contract", () => {
 
     for (const scenario of scenarios) {
       await expect(
-        resolvePreferredProviderForAuthChoice({ choice: scenario.authChoice }),
+        resolvePreferredProviderForAuthChoiceFromPluginProviders({
+          choice: scenario.authChoice,
+          providers: bundledProviders,
+        }),
       ).resolves.toBe(scenario.expectedProvider);
     }
   });
