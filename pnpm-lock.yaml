@@ -632,9 +632,12 @@ importers:
       lit:
         specifier: ^3.3.2
         version: 3.3.2
-      marked:
-        specifier: ^17.0.4
-        version: 17.0.4
+      markdown-it:
+        specifier: ^14.1.1
+        version: 14.1.1
+      markdown-it-task-lists:
+        specifier: ^2.1.1
+        version: 2.1.1
       signal-polyfill:
         specifier: ^0.2.2
         version: 0.2.2
@@ -645,6 +648,9 @@ importers:
         specifier: 8.0.0
         version: 8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
     devDependencies:
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.1.2
       '@vitest/browser-playwright':
         specifier: 4.1.0
         version: 4.1.0(playwright@1.58.2)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))(vitest@4.1.0)
@@ -5261,6 +5267,9 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
+  markdown-it-task-lists@2.1.1:
+    resolution: {integrity: sha512-TxFAc76Jnhb2OUu+n3yz9RMu4CwGfaT788br6HhEDlvWfdeJcLUsxk1Hgw2yJio0OXsxv7pyIPmvECY7bMbluA==}
+
   markdown-it@14.1.1:
     resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
     hasBin: true
@@ -5271,11 +5280,6 @@ packages:
   marked@15.0.12:
     resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
     engines: {node: '>= 18'}
-    hasBin: true
-
-  marked@17.0.4:
-    resolution: {integrity: sha512-NOmVMM+KAokHMvjWmC5N/ZOvgmSWuqJB8FoYI019j4ogb/PeRMKoKIjReZ2w3376kkA8dSJIP8uD993Kxc0iRQ==}
-    engines: {node: '>= 20'}
     hasBin: true
 
   math-intrinsics@1.1.0:
@@ -12524,6 +12528,8 @@ snapshots:
     dependencies:
       semver: 7.7.4
 
+  markdown-it-task-lists@2.1.1: {}
+
   markdown-it@14.1.1:
     dependencies:
       argparse: 2.0.1
@@ -12538,8 +12544,6 @@ snapshots:
       repeat-string: 1.6.1
 
   marked@15.0.12: {}
-
-  marked@17.0.4: {}
 
   math-intrinsics@1.1.0: {}
 
