@@ -24,15 +24,21 @@ afterEach(async () => {
 
 describe("loadEnabledBundleMcpConfig", () => {
   it("loads enabled Claude bundle MCP config and absolutizes relative args", async () => {
-    const env = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_HOME"]);
+    const env = captureEnv([
+      "HOME",
+      "USERPROFILE",
+      "OPENCLAW_HOME",
+      "OPENCLAW_STATE_DIR",
+      "CLAWDBOT_STATE_DIR",
+    ]);
     try {
-      const homeDir = await createTempDir("openclaw-bundle-mcp-home-");
+      const stateDir = await createTempDir("openclaw-bundle-mcp-state-");
       const workspaceDir = await createTempDir("openclaw-bundle-mcp-workspace-");
-      process.env.HOME = homeDir;
-      process.env.USERPROFILE = homeDir;
-      process.env.OPENCLAW_HOME = homeDir;
+      process.env.OPENCLAW_STATE_DIR = stateDir;
+      delete process.env.CLAWDBOT_STATE_DIR;
+      delete process.env.OPENCLAW_HOME;
 
-      const pluginRoot = path.join(homeDir, ".openclaw", "extensions", "bundle-probe");
+      const pluginRoot = path.join(stateDir, "extensions", "bundle-probe");
       const serverPath = path.join(pluginRoot, "servers", "probe.mjs");
       await fs.mkdir(path.join(pluginRoot, ".claude-plugin"), { recursive: true });
       await fs.mkdir(path.dirname(serverPath), { recursive: true });
@@ -82,16 +88,22 @@ describe("loadEnabledBundleMcpConfig", () => {
   });
 
   it("merges inline bundle MCP servers and skips disabled bundles", async () => {
-    const env = captureEnv(["HOME", "USERPROFILE", "OPENCLAW_HOME"]);
+    const env = captureEnv([
+      "HOME",
+      "USERPROFILE",
+      "OPENCLAW_HOME",
+      "OPENCLAW_STATE_DIR",
+      "CLAWDBOT_STATE_DIR",
+    ]);
     try {
-      const homeDir = await createTempDir("openclaw-bundle-inline-home-");
+      const stateDir = await createTempDir("openclaw-bundle-inline-state-");
       const workspaceDir = await createTempDir("openclaw-bundle-inline-workspace-");
-      process.env.HOME = homeDir;
-      process.env.USERPROFILE = homeDir;
-      process.env.OPENCLAW_HOME = homeDir;
+      process.env.OPENCLAW_STATE_DIR = stateDir;
+      delete process.env.CLAWDBOT_STATE_DIR;
+      delete process.env.OPENCLAW_HOME;
 
-      const enabledRoot = path.join(homeDir, ".openclaw", "extensions", "inline-enabled");
-      const disabledRoot = path.join(homeDir, ".openclaw", "extensions", "inline-disabled");
+      const enabledRoot = path.join(stateDir, "extensions", "inline-enabled");
+      const disabledRoot = path.join(stateDir, "extensions", "inline-disabled");
       await fs.mkdir(path.join(enabledRoot, ".claude-plugin"), { recursive: true });
       await fs.mkdir(path.join(disabledRoot, ".claude-plugin"), { recursive: true });
       await fs.writeFile(

@@ -35,6 +35,11 @@ const NOSTR_ALLOW_FROM_HELP_LINES = [
   `Docs: ${formatDocsLink("/channels/nostr", "channels/nostr")}`,
 ];
 
+const DEFAULT_SETUP_RELAYS =
+  Array.isArray(DEFAULT_RELAYS) && DEFAULT_RELAYS.length > 0
+    ? DEFAULT_RELAYS
+    : ["wss://relay.damus.io", "wss://nos.lol"];
+
 function patchNostrConfig(params: {
   cfg: OpenClawConfig;
   patch: Record<string, unknown>;
@@ -201,7 +206,7 @@ export const nostrSetupWizard: ChannelSetupWizard = {
       const account = resolveNostrAccount({ cfg });
       return [
         `Nostr: ${configured ? "configured" : "needs private key"}`,
-        `Relays: ${account.relays.length || DEFAULT_RELAYS.length}`,
+        `Relays: ${account.relays.length || DEFAULT_SETUP_RELAYS.length}`,
       ];
     },
   },
@@ -264,7 +269,7 @@ export const nostrSetupWizard: ChannelSetupWizard = {
     {
       inputKey: "relayUrls",
       message: "Relay URLs (comma-separated, optional)",
-      placeholder: DEFAULT_RELAYS.join(", "),
+      placeholder: DEFAULT_SETUP_RELAYS.join(", "),
       required: false,
       applyEmptyValue: true,
       helpTitle: "Nostr relays",
