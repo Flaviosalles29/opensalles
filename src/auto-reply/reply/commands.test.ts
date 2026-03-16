@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -2074,5 +2075,68 @@ describe("handleCommands /tts", () => {
     const result = await handleCommands(params);
     expect(result.shouldContinue).toBe(false);
     expect(result.reply?.text).toContain("TTS status");
+  });
+
+  it("supports /tts always to set auto mode to always", async () => {
+    const prefsPath = path.join(testWorkspaceDir, "tts-always.json");
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+      messages: { tts: { prefsPath } },
+    } as OpenClawConfig;
+    const params = buildParams("/tts always", cfg);
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("always");
+    // Round-trip: verify persisted state
+    const saved = JSON.parse(fsSync.readFileSync(prefsPath, "utf8"));
+    expect(saved.tts.auto).toBe("always");
+  });
+
+  it("supports /tts inbound to set auto mode to inbound", async () => {
+    const prefsPath = path.join(testWorkspaceDir, "tts-inbound.json");
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+      messages: { tts: { prefsPath } },
+    } as OpenClawConfig;
+    const params = buildParams("/tts inbound", cfg);
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("inbound");
+    // Round-trip: verify persisted state
+    const saved = JSON.parse(fsSync.readFileSync(prefsPath, "utf8"));
+    expect(saved.tts.auto).toBe("inbound");
+  });
+
+  it("supports /tts tagged to set auto mode to tagged", async () => {
+    const prefsPath = path.join(testWorkspaceDir, "tts-tagged.json");
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+      messages: { tts: { prefsPath } },
+    } as OpenClawConfig;
+    const params = buildParams("/tts tagged", cfg);
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("tagged");
+    // Round-trip: verify persisted state
+    const saved = JSON.parse(fsSync.readFileSync(prefsPath, "utf8"));
+    expect(saved.tts.auto).toBe("tagged");
+  });
+
+  it("shows specific auto mode in status after setting /tts inbound", async () => {
+    const prefsPath = path.join(testWorkspaceDir, "tts-status-mode.json");
+    // Set auto mode to inbound via prefs
+    fsSync.writeFileSync(prefsPath, JSON.stringify({ tts: { auto: "inbound" } }, null, 2));
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+      messages: { tts: { prefsPath } },
+    } as OpenClawConfig;
+    const params = buildParams("/tts status", cfg);
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("enabled (inbound)");
   });
 });
