@@ -379,6 +379,7 @@ export {
   sendMediaWithLeadingCaption,
 } from "./reply-payload.js";
 export type { OutboundReplyPayload } from "./reply-payload.js";
+export { resolveOutboundSendDep, type OutboundSendDeps } from "../infra/outbound/send-deps.js";
 export {
   buildInboundReplyDispatchBase,
   dispatchInboundReplyWithBase,

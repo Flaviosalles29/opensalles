@@ -3,6 +3,7 @@ import {
   buildAccountScopedDmSecurityPolicy,
   collectAllowlistProviderRestrictSendersWarnings,
 } from "openclaw/plugin-sdk/compat";
+import { resolveOutboundSendDep } from "openclaw/plugin-sdk/compat";
 import {
   buildChannelConfigSchema,
   collectStatusIssuesFromLastError,
@@ -26,7 +27,6 @@ import {
   type ChannelPlugin,
   type ResolvedIMessageAccount,
 } from "openclaw/plugin-sdk/imessage";
-import { resolveOutboundSendDep } from "../../../src/infra/outbound/send-deps.js";
 import { buildPassiveProbedChannelStatusSummary } from "../../shared/channel-status-summary.js";
 import { getIMessageRuntime } from "./runtime.js";
 import { createIMessageSetupWizardProxy, imessageSetupAdapter } from "./setup-core.js";
