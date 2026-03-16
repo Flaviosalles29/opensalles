@@ -1,7 +1,12 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
 import type { ReasoningLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
-import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
+import {
+  ANNOUNCE_SKIP_TOKEN,
+  isSilentReplyText,
+  REPLY_SKIP_TOKEN,
+  SILENT_REPLY_TOKEN,
+} from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
 import type { OpenClawConfig } from "../../../config/config.js";
 import {
@@ -271,6 +276,20 @@ export function buildEmbeddedRunPayloads(params: {
     if (!cleanedText && (!mediaUrls || mediaUrls.length === 0) && !audioAsVoice) {
       continue;
     }
+    // Treat ANNOUNCE_SKIP / REPLY_SKIP as silent *before* evaluating
+    // hasUserFacingAssistantReply.  Checking here (not in the trailing .filter())
+    // ensures these tokens never suppress tool-error warnings by being counted
+    // as a user-facing reply.  Text-only payloads are skipped entirely; payloads
+    // that also carry media are kept so the media still reaches the user.
+    if (
+      cleanedText &&
+      !mediaUrls?.length &&
+      !audioAsVoice &&
+      (isSilentReplyText(cleanedText, ANNOUNCE_SKIP_TOKEN) ||
+        isSilentReplyText(cleanedText, REPLY_SKIP_TOKEN))
+    ) {
+      continue;
+    }
     replyItems.push({
       text: cleanedText,
       media: mediaUrls,
@@ -340,6 +359,13 @@ export function buildEmbeddedRunPayloads(params: {
         return false;
       }
       if (p.text && isSilentReplyText(p.text, SILENT_REPLY_TOKEN)) {
+        return false;
+      }
+      if (
+        p.text &&
+        (isSilentReplyText(p.text, ANNOUNCE_SKIP_TOKEN) ||
+          isSilentReplyText(p.text, REPLY_SKIP_TOKEN))
+      ) {
         return false;
       }
       return true;
