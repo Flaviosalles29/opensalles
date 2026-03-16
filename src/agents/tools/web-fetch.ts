@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { normalizeResolvedSecretInputString } from "../../config/types.secrets.js";
-import { SsrFBlockedError } from "../../infra/net/ssrf.js";
+import { type SsrFPolicy, SsrFBlockedError } from "../../infra/net/ssrf.js";
 import { logDebug } from "../../logger.js";
 import type { RuntimeWebFetchFirecrawlMetadata } from "../../secrets/runtime-web-tools.js";
 import { wrapExternalContent, wrapWebContent } from "../../security/external-content.js";
@@ -101,6 +101,13 @@ function resolveFetchReadabilityEnabled(fetch?: WebFetchConfig): boolean {
     return fetch.readability;
   }
   return true;
+}
+
+function resolveFetchSsrFPolicy(fetch?: WebFetchConfig): SsrFPolicy | undefined {
+  if (fetch?.allowRfc2544BenchmarkRange !== true) {
+    return undefined;
+  }
+  return { allowRfc2544BenchmarkRange: true };
 }
 
 function resolveFetchMaxCharsCap(fetch?: WebFetchConfig): number {
@@ -458,6 +465,7 @@ type WebFetchRuntimeParams = FirecrawlRuntimeParams & {
   cacheTtlMs: number;
   userAgent: string;
   readabilityEnabled: boolean;
+  ssrfPolicy?: SsrFPolicy;
 };
 
 function toFirecrawlContentParams(
@@ -511,9 +519,13 @@ async function maybeFetchFirecrawlWebFetchPayload(
   return payload;
 }
 
+function resolveWebFetchCacheScope(params: Pick<WebFetchRuntimeParams, "ssrfPolicy">): string {
+  return params.ssrfPolicy?.allowRfc2544BenchmarkRange === true ? "rfc2544-on" : "rfc2544-off";
+}
+
 async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string, unknown>> {
   const cacheKey = normalizeCacheKey(
-    `fetch:${params.url}:${params.extractMode}:${params.maxChars}`,
+    `fetch:${params.url}:${params.extractMode}:${params.maxChars}:${resolveWebFetchCacheScope(params)}`,
   );
   const cached = readCache(FETCH_CACHE, cacheKey);
   if (cached) {
@@ -539,6 +551,7 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
       url: params.url,
       maxRedirects: params.maxRedirects,
       timeoutSeconds: params.timeoutSeconds,
+      policy: params.ssrfPolicy,
       init: {
         headers: {
           Accept: "text/markdown, text/html;q=0.9, */*;q=0.1",
@@ -741,6 +754,7 @@ export function createWebFetchTool(options?: {
     return null;
   }
   const readabilityEnabled = resolveFetchReadabilityEnabled(fetch);
+  const ssrfPolicy = resolveFetchSsrFPolicy(fetch);
   const firecrawl = resolveFirecrawlConfig(fetch);
   const runtimeFirecrawlActive = options?.runtimeFirecrawl?.active;
   const shouldResolveFirecrawlApiKey =
@@ -787,6 +801,7 @@ export function createWebFetchTool(options?: {
         cacheTtlMs: resolveCacheTtlMs(fetch?.cacheTtlMinutes, DEFAULT_CACHE_TTL_MINUTES),
         userAgent,
         readabilityEnabled,
+        ssrfPolicy,
         firecrawlEnabled,
         firecrawlApiKey,
         firecrawlBaseUrl,

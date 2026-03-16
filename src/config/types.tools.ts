@@ -517,6 +517,15 @@ export type ToolsConfig = {
     fetch?: {
       /** Enable web fetch tool (default: true). */
       enabled?: boolean;
+      /**
+       * Explicitly allow RFC2544 benchmark/fake-IP addresses (198.18.0.0/15)
+       * during SSRF DNS checks. Default: false.
+       *
+       * This is intended for proxy setups that intentionally return benchmark
+       * fake-IP answers for public hostnames. It does not allow RFC1918,
+       * loopback, or link-local targets.
+       */
+      allowRfc2544BenchmarkRange?: boolean;
       /** Max characters to return from fetched content. */
       maxChars?: number;
       /** Hard cap for maxChars (tool or config), defaults to 50000. */
