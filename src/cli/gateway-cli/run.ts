@@ -206,7 +206,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   const preflightSnapshot = await readConfigFileSnapshot();
   if (!preflightSnapshot.valid) {
     const issues =
-      preflightSnapshot.issues.length > 0
+      (preflightSnapshot.issues?.length ?? 0) > 0
         ? formatConfigIssueLines(preflightSnapshot.issues, "", { normalizeRoot: true }).join("\n")
         : "Unknown validation issue.";
 
@@ -231,7 +231,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
           gatewayLog.info("gateway: config rollback successful, continuing startup");
         } else {
           const rollbackIssues =
-            rollbackSnapshot.issues.length > 0
+            (rollbackSnapshot.issues?.length ?? 0) > 0
               ? formatConfigIssueLines(rollbackSnapshot.issues, "", { normalizeRoot: true }).join(
                   "\n",
                 )
