@@ -9,6 +9,7 @@ import {
   writeCache,
 } from "../../../src/agents/tools/web-shared.js";
 import type { OpenClawConfig } from "../../../src/config/config.js";
+import { isBlockedHostnameOrIp, SsrFBlockedError } from "../../../src/infra/net/ssrf.js";
 import { wrapExternalContent, wrapWebContent } from "../../../src/security/external-content.js";
 import {
   resolveFirecrawlApiKey,
@@ -30,6 +31,59 @@ const SCRAPE_CACHE = new Map<
 const DEFAULT_SEARCH_COUNT = 5;
 const DEFAULT_SCRAPE_MAX_CHARS = 50_000;
 const DEFAULT_ERROR_MAX_BYTES = 64_000;
+
+/**
+ * Maximum number of entries allowed in each in-process cache.  Without this
+ * cap the Maps grow without bound when the agent processes many unique URLs
+ * during a long session, causing unbounded memory growth (CWE-400).
+ */
+const MAX_CACHE_ENTRIES = 500;
+
+/**
+ * Evict the oldest (insertion-order) entry from `cache` when it has reached
+ * MAX_CACHE_ENTRIES.  Map iteration order is guaranteed to match insertion
+ * order, so `keys().next()` always yields the oldest entry.
+ */
+function evictOldestIfNeeded<V>(cache: Map<string, V>): void {
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) {
+      cache.delete(oldest);
+    }
+  }
+}
+
+/**
+ * Validate that a caller-supplied URL targets a public HTTP/HTTPS endpoint
+ * before forwarding it to the Firecrawl API.
+ *
+ * Without this check a prompt-injection attack can direct the agent to call
+ * firecrawl_scrape("http://169.254.169.254/...") and the Firecrawl service
+ * will happily fetch the cloud-instance metadata endpoint on behalf of the
+ * host environment, returning credentials into the LLM context (CWE-918).
+ *
+ * The guard reuses the same isBlockedHostnameOrIp() logic that is already
+ * enforced in src/agents/tools/web-fetch.ts via SsrFBlockedError, ensuring
+ * consistent SSRF policy across all web-fetching tools.
+ */
+function assertFirecrawlUrlAllowed(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new SsrFBlockedError(`Invalid URL supplied to Firecrawl: ${url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new SsrFBlockedError(
+      `Blocked non-HTTP(S) protocol in Firecrawl URL: ${parsed.protocol}`,
+    );
+  }
+  if (isBlockedHostnameOrIp(parsed.hostname)) {
+    throw new SsrFBlockedError(
+      `Blocked hostname or private/internal IP in Firecrawl URL: ${parsed.hostname}`,
+    );
+  }
+}
 
 type FirecrawlSearchItem = {
   title: string;
@@ -294,6 +348,7 @@ export async function runFirecrawlSearch(
     tookMs: Date.now() - start,
     scrapeResults,
   });
+  evictOldestIfNeeded(SEARCH_CACHE);
   writeCache(
     SEARCH_CACHE,
     cacheKey,
@@ -375,6 +430,11 @@ export function parseFirecrawlScrapePayload(params: {
 export async function runFirecrawlScrape(
   params: FirecrawlScrapeParams,
 ): Promise<Record<string, unknown>> {
+  // Validate the caller-supplied URL before forwarding it to Firecrawl.
+  // Prompt-injection attacks can direct the agent to pass private/metadata
+  // addresses here; block them early using the shared SSRF guard (CWE-918).
+  assertFirecrawlUrlAllowed(params.url);
+
   const apiKey = resolveFirecrawlApiKey(params.cfg);
   if (!apiKey) {
     throw new Error(
@@ -431,6 +491,7 @@ export async function runFirecrawlScrape(
     extractMode: params.extractMode,
     maxChars,
   });
+  evictOldestIfNeeded(SCRAPE_CACHE);
   writeCache(
     SCRAPE_CACHE,
     cacheKey,
