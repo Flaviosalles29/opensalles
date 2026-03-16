@@ -579,6 +579,10 @@ export async function compactEmbeddedPiSessionDirect(
       modelContextWindowTokens: ctxInfo.tokens,
       modelAuthMode: resolveModelAuthMode(model.provider, params.config),
     });
+    // channelId and requesterSenderId are intentionally omitted: the compact
+    // path does not carry per-message sender/channel info (CompactEmbeddedPiSessionParams
+    // has no currentChannelId or senderId fields). Plugins that rely on those
+    // fields will see `undefined` here and should fall back to permissive defaults.
     const toolsAfterHook = await applyBeforeToolsResolveHook(toolsRaw, {
       agentId: resolveSessionAgentIds({ sessionKey: params.sessionKey, config: params.config })
         .sessionAgentId,
