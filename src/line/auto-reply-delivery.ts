@@ -1,5 +1,6 @@
 import type { messagingApi } from "@line/bot-sdk";
 import type { ReplyPayload } from "../auto-reply/types.js";
+import { runOutboundMessageHook } from "../plugins/outbound-hook.js";
 import type { FlexContainer } from "./flex-templates.js";
 import type { ProcessedLineMessage } from "./markdown-to-line.js";
 import type { SendLineReplyChunksParams } from "./reply-chunks.js";
@@ -113,8 +114,17 @@ export async function deliverLineAutoReply(params: {
     richMessages.push(deps.createLocationMessage(lineData.location));
   }
 
-  const processed = payload.text
-    ? deps.processLineMessage(payload.text)
+  const hookResult = await runOutboundMessageHook({
+    to,
+    content: payload.text ?? "",
+    channel: "line",
+    accountId,
+  });
+  if (hookResult === null) {
+    return { replyTokenUsed };
+  }
+  const processed = hookResult.content
+    ? deps.processLineMessage(hookResult.content)
     : { text: "", flexMessages: [] };
 
   for (const flexMsg of processed.flexMessages) {

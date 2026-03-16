@@ -7,6 +7,7 @@ import type { MarkdownTableMode, ReplyToMode } from "../../../../src/config/type
 import { createDiscordRetryRunner, type RetryRunner } from "../../../../src/infra/retry-policy.js";
 import { resolveRetryConfig, retryAsync, type RetryConfig } from "../../../../src/infra/retry.js";
 import { convertMarkdownTables } from "../../../../src/markdown/tables.js";
+import { runOutboundMessageHook } from "../../../../src/plugins/outbound-hook.js";
 import type { RuntimeEnv } from "../../../../src/runtime.js";
 import { resolveDiscordAccount } from "../accounts.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
@@ -289,7 +290,14 @@ export async function deliverDiscordReply(params: {
   let deliveredAny = false;
   for (const payload of params.replies) {
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
-    const rawText = payload.text ?? "";
+    const hookResult = await runOutboundMessageHook({
+      to: params.target,
+      content: payload.text ?? "",
+      channel: "discord",
+      accountId: params.accountId,
+    });
+    if (hookResult === null) continue;
+    const rawText = hookResult.content;
     const tableMode = params.tableMode ?? "code";
     const text = convertMarkdownTables(rawText, tableMode);
     if (!text && mediaList.length === 0) {

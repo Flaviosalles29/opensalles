@@ -3,6 +3,7 @@ import type { ReplyPayload } from "../../../../src/auto-reply/types.js";
 import { loadConfig } from "../../../../src/config/config.js";
 import { resolveMarkdownTableMode } from "../../../../src/config/markdown-tables.js";
 import { convertMarkdownTables } from "../../../../src/markdown/tables.js";
+import { runOutboundMessageHook } from "../../../../src/plugins/outbound-hook.js";
 import type { RuntimeEnv } from "../../../../src/runtime.js";
 import type { createIMessageRpcClient } from "../client.js";
 import { sendMessageIMessage } from "../send.js";
@@ -31,7 +32,14 @@ export async function deliverReplies(params: {
   const chunkMode = resolveChunkMode(cfg, "imessage", accountId);
   for (const payload of replies) {
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
-    const rawText = sanitizeOutboundText(payload.text ?? "");
+    const hookResult = await runOutboundMessageHook({
+      to: target,
+      content: payload.text ?? "",
+      channel: "imessage",
+      accountId,
+    });
+    if (hookResult === null) continue;
+    const rawText = sanitizeOutboundText(hookResult.content);
     const text = convertMarkdownTables(rawText, tableMode);
     if (!text && mediaList.length === 0) {
       continue;

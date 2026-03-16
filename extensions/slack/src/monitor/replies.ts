@@ -4,6 +4,7 @@ import { createReplyReferencePlanner } from "../../../../src/auto-reply/reply/re
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../../src/auto-reply/tokens.js";
 import type { ReplyPayload } from "../../../../src/auto-reply/types.js";
 import type { MarkdownTableMode } from "../../../../src/config/types.base.js";
+import { runOutboundMessageHook } from "../../../../src/plugins/outbound-hook.js";
 import type { RuntimeEnv } from "../../../../src/runtime.js";
 import { parseSlackBlocksInput } from "../blocks-input.js";
 import { markdownToSlackMrkdwnChunks } from "../format.js";
@@ -38,11 +39,19 @@ export async function deliverReplies(params: {
     const inlineReplyToId = params.replyToMode === "off" ? undefined : payload.replyToId;
     const threadTs = inlineReplyToId ?? params.replyThreadTs;
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
-    const text = payload.text ?? "";
+    const rawText = payload.text ?? "";
     const slackBlocks = readSlackReplyBlocks(payload);
-    if (!text && mediaList.length === 0 && !slackBlocks?.length) {
+    if (!rawText && mediaList.length === 0 && !slackBlocks?.length) {
       continue;
     }
+    const hookResult = await runOutboundMessageHook({
+      to: params.target,
+      content: rawText,
+      channel: "slack",
+      accountId: params.accountId,
+    });
+    if (hookResult === null) continue;
+    const text = hookResult.content;
 
     if (mediaList.length === 0) {
       const trimmed = text.trim();
