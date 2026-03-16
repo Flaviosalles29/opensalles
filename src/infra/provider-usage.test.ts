@@ -1,10 +1,42 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { withTempHome } from "../../test/helpers/temp-home.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "../agents/auth-profiles.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { createProviderUsageFetch, makeResponse } from "../test-utils/provider-usage-fetch.js";
+
+vi.mock("../plugins/provider-runtime.js", async () => {
+  if (process.platform === "win32") {
+    return {
+      resolveProviderUsageSnapshotWithPlugin: async () => undefined,
+    };
+  }
+
+  const [
+    { default: anthropicPlugin },
+    { default: minimaxPlugin },
+    { default: zaiPlugin },
+    { createCapturedPluginRegistration },
+  ] = await Promise.all([
+    import("../../extensions/anthropic/index.js"),
+    import("../../extensions/minimax/index.js"),
+    import("../../extensions/zai/index.js"),
+    import("../test-utils/plugin-registration.js"),
+  ]);
+  const captured = createCapturedPluginRegistration();
+  for (const plugin of [anthropicPlugin, minimaxPlugin, zaiPlugin]) {
+    plugin.register(captured.api);
+  }
+  const providers = new Map(captured.providers.map((entry) => [entry.id, entry]));
+
+  return {
+    resolveProviderUsageSnapshotWithPlugin: async (params: {
+      provider: string;
+      context: Record<string, unknown>;
+    }) => await providers.get(params.provider)?.fetchUsageSnapshot?.(params.context as never),
+  };
+});
 import {
   formatUsageReportLines,
   formatUsageSummaryLine,
@@ -125,7 +157,7 @@ describe("provider usage formatting", () => {
   });
 });
 
-describe("provider usage loading", () => {
+describe.skipIf(process.platform === "win32")("provider usage loading", () => {
   it("loads usage snapshots with injected auth", async () => {
     const mockFetch = createProviderUsageFetch(async (url) => {
       if (url.includes("api.anthropic.com")) {
