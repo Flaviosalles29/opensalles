@@ -693,6 +693,8 @@ export const FIELD_HELP: Record<string, string> = {
   "tools.web.search.perplexity.model":
     'Optional Sonar/OpenRouter model override (default: "perplexity/sonar-pro"). Setting this opts Perplexity into the legacy chat-completions compatibility path.',
   "tools.web.fetch.enabled": "Enable the web_fetch tool (lightweight HTTP fetch).",
+  "tools.web.fetch.allowRfc2544BenchmarkRange":
+    "Allow RFC2544 benchmark/fake-IP DNS answers (198.18.0.0/15) for web_fetch SSRF checks when your proxy intentionally returns them for public sites. Default: false; RFC1918/loopback/link-local remain blocked.",
   "tools.web.fetch.maxChars": "Max characters returned by web_fetch (truncated).",
   "tools.web.fetch.maxCharsCap":
     "Hard cap for web_fetch maxChars (applies to config and tool calls).",

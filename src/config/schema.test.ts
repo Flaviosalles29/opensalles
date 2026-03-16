@@ -205,6 +205,7 @@ describe("config schema", () => {
     const parsed = ToolsSchema.parse({
       web: {
         fetch: {
+          allowRfc2544BenchmarkRange: true,
           readability: true,
           firecrawl: {
             enabled: true,
@@ -218,6 +219,7 @@ describe("config schema", () => {
       },
     });
 
+    expect(parsed?.web?.fetch?.allowRfc2544BenchmarkRange).toBe(true);
     expect(parsed?.web?.fetch?.readability).toBe(true);
     expect(parsed?.web?.fetch).toMatchObject({
       firecrawl: {

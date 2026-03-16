@@ -379,6 +379,7 @@ Fetch a URL and extract readable content.
     web: {
       fetch: {
         enabled: true,
+        allowRfc2544BenchmarkRange: false,
         maxChars: 50000,
         maxCharsCap: 50000,
         maxResponseBytes: 2000000,
@@ -415,6 +416,7 @@ Notes:
 - If Firecrawl is active and its SecretRef is unresolved with no `FIRECRAWL_API_KEY` fallback, startup/reload fails fast.
 - `web_fetch` sends a Chrome-like User-Agent and `Accept-Language` by default; override `userAgent` if needed.
 - `web_fetch` blocks private/internal hostnames and re-checks redirects (limit with `maxRedirects`).
+- `allowRfc2544BenchmarkRange: true` is an explicit compatibility escape hatch for proxy setups that return RFC2544 fake-IP DNS answers (`198.18.0.0/15`) for public sites. It stays `false` by default, and it does not allow RFC1918, loopback, or link-local targets.
 - `maxChars` is clamped to `tools.web.fetch.maxCharsCap`.
 - `web_fetch` caps the downloaded response body size to `tools.web.fetch.maxResponseBytes` before parsing; oversized responses are truncated and include a warning.
 - `web_fetch` is best-effort extraction; some sites will need the browser tool.
