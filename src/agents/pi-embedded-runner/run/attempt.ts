@@ -1952,6 +1952,7 @@ export async function runEmbeddedAttempt(
         effectiveStreamParams,
         params.thinkLevel,
         sessionAgentId,
+        allowedToolNames,
       );
 
       if (cacheTrace) {
