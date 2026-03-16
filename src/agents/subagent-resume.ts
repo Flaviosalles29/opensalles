@@ -359,25 +359,30 @@ function findEntryByKey(
 /**
  * Scan `sessionsDir` for a `.jsonl` transcript whose creation time is close to
  * `targetCreatedAtMs` (within `toleranceMs`).  Uses `stat.birthtimeMs`
- * (creation time) as the primary signal.  On platforms that do not support
- * birth-time (Linux filesystems where `birthtimeMs === mtimeMs`), `mtimeMs` is
- * used as a proxy for creation time.
+ * (creation time) as the primary signal.
+ *
+ * On platforms that do not support birth-time (Linux filesystems where
+ * `birthtimeMs === mtimeMs`), `mtimeMs` drifts as the transcript is appended,
+ * so a long-running subagent can exceed the tolerance even when the file is the
+ * correct match.  To handle this, when `birthtimeMs === mtimeMs` we include
+ * **all** `.jsonl` files regardless of timestamp and then narrow via the
+ * session header (performed by the caller after this scan).  When real
+ * `birthtimeMs` is available, the strict tolerance applies and the
+ * one-candidate constraint prevents false matches.
  *
  * Returns the absolute path of the candidate if exactly one candidate is found,
  * otherwise `null`.
- *
- * The one-candidate constraint prevents false matches when multiple subagents
- * were spawned at nearly the same time; in that case rehydration is skipped
- * (best-effort) and the orphan logic runs instead.
  */
 function scanSessionsDirForTranscriptCandidate(
   sessionsDir: string,
   targetCreatedAtMs: number,
   toleranceMs: number,
+  opts?: { childSessionKey?: string },
 ): string | null {
   try {
     const files = fs.readdirSync(sessionsDir);
     const candidates: string[] = [];
+    let birthtimeUnavailable = false;
     for (const file of files) {
       if (!file.endsWith(".jsonl")) {
         continue;
@@ -385,20 +390,45 @@ function scanSessionsDirForTranscriptCandidate(
       const fullPath = path.join(sessionsDir, file);
       try {
         const stat = fs.statSync(fullPath);
-        // Use birthtimeMs (creation time) as the primary signal.
-        // On Linux filesystems that do not report birth-time, birthtimeMs equals
-        // mtimeMs; in that case fall back to mtimeMs as a reasonable proxy.
-        const fileCreatedAtMs = stat.birthtimeMs !== stat.mtimeMs ? stat.birthtimeMs : stat.mtimeMs;
-        const timeDiffMs = Math.abs(fileCreatedAtMs - targetCreatedAtMs);
-        // No upper age bound: a run that started hours before a restart must
-        // still be recoverable.  The toleranceMs window relative to the
-        // registry entry's createdAt already constrains the match tightly.
-        if (timeDiffMs <= toleranceMs) {
-          candidates.push(fullPath);
+        const hasBirthtime = stat.birthtimeMs !== stat.mtimeMs;
+        if (hasBirthtime) {
+          // Platform supports real birth-time — use strict tolerance.
+          const timeDiffMs = Math.abs(stat.birthtimeMs - targetCreatedAtMs);
+          if (timeDiffMs <= toleranceMs) {
+            candidates.push(fullPath);
+          }
+        } else {
+          // Linux fallback: mtimeMs drifts for long-running transcripts so
+          // timestamp matching is unreliable.  Instead, check the session
+          // header inside the transcript to find the correct file.
+          birthtimeUnavailable = true;
+          if (opts?.childSessionKey) {
+            const headerSessionId = readTranscriptSessionId(fullPath);
+            // The session header's id must be part of the childSessionKey
+            // (typically the UUID suffix).  This is a loose but reliable match.
+            if (
+              headerSessionId &&
+              opts.childSessionKey.toLowerCase().includes(headerSessionId.toLowerCase())
+            ) {
+              candidates.push(fullPath);
+            }
+          } else {
+            // No childSessionKey to match against — fall back to mtime with
+            // a relaxed tolerance (1 hour instead of 5 minutes) as a best-effort.
+            const timeDiffMs = Math.abs(stat.mtimeMs - targetCreatedAtMs);
+            if (timeDiffMs <= 60 * 60_000) {
+              candidates.push(fullPath);
+            }
+          }
         }
       } catch {
         // ignore stat failures for individual files
       }
+    }
+    if (birthtimeUnavailable && candidates.length > 1) {
+      // Multiple candidates on a platform without real birthtime — ambiguous.
+      // Fall through to orphan logic rather than risk a false match.
+      return null;
     }
     return candidates.length === 1 ? (candidates[0] ?? null) : null;
   } catch {
@@ -468,6 +498,7 @@ export async function rehydrateSessionStoreEntries(
         sessionsDir,
         targetCreatedAtMs,
         TOLERANCE_MS,
+        { childSessionKey },
       );
       if (!transcriptPath) {
         log.debug("rehydrate: no transcript candidate found", { childSessionKey });
