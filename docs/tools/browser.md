@@ -123,6 +123,26 @@ Notes:
 - Set `browser.profiles.<name>.userDataDir` when an existing-session profile
   should attach to a non-default Chromium user profile such as Brave or Edge.
 
+### How `browser.cdpUrl` interacts with profiles
+
+When you set a top-level `browser.cdpUrl`, OpenClaw derives the default `openclaw`
+profile from that CDP endpoint. In this mode:
+
+- `openclaw` becomes a CDP-backed profile pointing at `browser.cdpUrl`.
+- If you **also** want a Chrome MCP attach profile, define an explicit `user`
+  profile under `browser.profiles` with `driver: "existing-session"`.
+
+Behavior when `browser.cdpUrl` is set:
+
+- If `defaultProfile` is omitted, the default stays `openclaw` (CDP).
+- If you set `defaultProfile: "user"` **and** define `profiles.user`, the
+  `user` profile is used (Chrome MCP / DevToolsActivePort).
+- If you set `defaultProfile: "user"` **but do not define `profiles.user`**,
+  OpenClaw rewrites the default back to `openclaw` so that the CDP endpoint
+  from `browser.cdpUrl` is used instead of falling back to Chrome MCP +
+  `DevToolsActivePort`. This matches the expectation that configuring
+  `browser.cdpUrl` should make the browser tool connect via CDP.
+
 ## Use Brave (or another Chromium-based browser)
 
 If your **system default** browser is Chromium-based (Chrome/Brave/Edge/etc),
