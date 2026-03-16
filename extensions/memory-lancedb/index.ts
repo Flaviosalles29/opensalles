@@ -489,7 +489,21 @@ const memoryPlugin = {
           const { query, memoryId } = params as { query?: string; memoryId?: string };
 
           if (memoryId) {
-            await db.delete(memoryId);
+            try {
+              await db.delete(memoryId);
+            } catch (err) {
+              // Distinguish invalid ID format from infrastructure errors.
+              // db.delete throws "Invalid memory ID format" for bad UUIDs —
+              // that's a client error (invalid_id). LanceDB init/query failures
+              // should propagate as retryable errors.
+              if (err instanceof Error && err.message.includes("Invalid memory ID format")) {
+                return {
+                  content: [{ type: "text", text: `Invalid memory ID format: ${memoryId}` }],
+                  details: { action: "error", error: "invalid_id", id: memoryId },
+                };
+              }
+              throw err;
+            }
             return {
               content: [{ type: "text", text: `Memory ${memoryId} forgotten.` }],
               details: { action: "deleted", id: memoryId },
@@ -618,7 +632,22 @@ const memoryPlugin = {
           // serialize correctly (no interleaved delete/insert races).
           // ------------------------------------------------------------------
           return withMemoryLock(memoryId, async () => {
-            const existing = await db.getById(memoryId);
+            let existing: MemoryEntry | null;
+            try {
+              existing = await db.getById(memoryId);
+            } catch (err) {
+              // Distinguish invalid ID format from infrastructure errors.
+              // getById throws "Invalid memory ID format" for bad UUIDs —
+              // return invalid_id so the caller can correct the ID.
+              // LanceDB init/query failures propagate as retryable errors.
+              if (err instanceof Error && err.message.includes("Invalid memory ID format")) {
+                return {
+                  content: [{ type: "text", text: `Invalid memory ID: ${memoryId}` }],
+                  details: { operation: "error", error: "invalid_id", memoryId },
+                };
+              }
+              throw err;
+            }
             if (!existing) {
               return {
                 content: [{ type: "text", text: `Memory ${memoryId} not found.` }],
@@ -635,13 +664,9 @@ const memoryPlugin = {
             const vector = await embeddings.embed(text);
             const oldTextPreview = existing.text.slice(0, 80);
 
-            // Delete the old entry
-            await db.delete(memoryId);
-
-            // Insert new entry — with best-effort rollback on failure
+            // Insert new entry FIRST — safer than delete-then-insert because
+            // a failed insert never leaves the caller with a missing memory.
             let newEntry: MemoryEntry;
-            let rollbackWarning: string | undefined;
-
             try {
               newEntry = await db.store({
                 text,
@@ -650,29 +675,45 @@ const memoryPlugin = {
                 category: resolvedCategory,
               });
             } catch (insertErr) {
-              // Best-effort rollback: restore the original entry with its
-              // original ID so callers are never left with a stale reference
-              // to a non-existent ID (Fix 1).
-              let rollbackSucceeded = false;
-              try {
-                await db.storeRaw(existing);
-                rollbackSucceeded = true;
-                rollbackWarning = `Insert failed; original restored with original ID ${existing.id}. Insert error: ${String(insertErr)}`;
-              } catch (rollbackErr) {
-                rollbackWarning = `Insert failed AND rollback failed (DATA LOSS POSSIBLE). Insert: ${String(insertErr)}. Rollback: ${String(rollbackErr)}`;
-              }
+              // Insert failed — the original entry is still intact, no data loss.
               return {
-                content: [{ type: "text", text: `Replace failed: ${rollbackWarning}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `Replace failed: could not insert new memory. Original unchanged. Error: ${String(insertErr)}`,
+                  },
+                ],
                 details: {
                   operation: "error",
                   error: "insert_failed",
                   success: false,
-                  rollbackWarning,
-                  // Only populate restored_id when the rollback actually succeeded.
-                  // If rollback also failed, the row is gone — omit restored_id so
-                  // callers are not misled into treating a failed recovery as
-                  // successful.
-                  ...(rollbackSucceeded ? { restored_id: existing.id } : { restored_id: null }),
+                  original_id: existing.id,
+                },
+              };
+            }
+
+            // Delete the old entry. If this fails after insert, surface the
+            // error so the caller knows both entries exist.
+            try {
+              await db.delete(memoryId);
+            } catch (deleteErr) {
+              api.logger.warn(
+                `memory-lancedb: delete of old entry ${memoryId} failed after insert of ${newEntry.id}: ${String(deleteErr)}`,
+              );
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Replace partially failed: new memory ${newEntry.id.slice(0, 8)}… created, but old memory ${memoryId.slice(0, 8)}… could not be deleted. Remove it manually with memory_forget.`,
+                  },
+                ],
+                details: {
+                  operation: "error",
+                  error: "delete_failed",
+                  success: false,
+                  new_id: newEntry.id,
+                  old_id: memoryId,
+                  deleteError: String(deleteErr),
                 },
               };
             }
