@@ -5,6 +5,7 @@ import {
   normalizeUsageDisplay,
   resolveResponseUsageMode,
 } from "../auto-reply/thinking.js";
+import type { OpenClawConfig } from "../config/types.js";
 import type { SessionsPatchResult } from "../gateway/protocol/index.js";
 import { formatRelativeTimestamp } from "../infra/format-time/format-relative.ts";
 import { normalizeAgentId } from "../routing/session-key.js";
@@ -30,6 +31,7 @@ type CommandHandlerContext = {
   chatLog: ChatLog;
   tui: TUI;
   opts: TuiOptions;
+  config?: OpenClawConfig;
   state: TuiStateAccess;
   deliverDefault: boolean;
   openOverlay: (component: Component) => void;
@@ -59,6 +61,7 @@ export function createCommandHandlers(context: CommandHandlerContext) {
     chatLog,
     tui,
     opts,
+    config,
     state,
     deliverDefault,
     openOverlay,
@@ -170,14 +173,19 @@ export function createCommandHandlers(context: CommandHandlerContext) {
         const title = session.derivedTitle ?? session.displayName;
         const formattedKey = formatSessionKey(session.key);
         // Avoid redundant "title (key)" when title matches key
-        const label = title && title !== formattedKey ? `${title} (${formattedKey})` : formattedKey;
+        const label =
+          title && title !== formattedKey
+            ? `${title} (${formattedKey})`
+            : formattedKey;
         // Build description: time + message preview
         const timePart = session.updatedAt
           ? formatRelativeTimestamp(session.updatedAt, { dateFallback: true, fallback: "" })
           : "";
         const preview = session.lastMessagePreview?.replace(/\s+/g, " ").trim();
         const description =
-          timePart && preview ? `${timePart} · ${preview}` : (preview ?? timePart);
+          timePart && preview
+            ? `${timePart} · ${preview}`
+            : preview ?? timePart;
         return {
           value: session.key,
           label,
@@ -250,6 +258,7 @@ export function createCommandHandlers(context: CommandHandlerContext) {
       case "help":
         chatLog.addSystem(
           helpText({
+            cfg: config,
             provider: state.sessionInfo.modelProvider,
             model: state.sessionInfo.model,
           }),
@@ -316,10 +325,14 @@ export function createCommandHandlers(context: CommandHandlerContext) {
         break;
       case "think":
         if (!args) {
+          const thinkingLevelOptions = config
+            ? { config }
+            : undefined;
           const levels = formatThinkingLevels(
             state.sessionInfo.modelProvider,
             state.sessionInfo.model,
             "|",
+            thinkingLevelOptions,
           );
           chatLog.addSystem(`usage: /think <${levels}>`);
           break;
@@ -355,7 +368,11 @@ export function createCommandHandlers(context: CommandHandlerContext) {
         break;
       case "fast":
         if (!args || args === "status") {
-          chatLog.addSystem(`fast mode: ${state.sessionInfo.fastMode ? "on" : "off"}`);
+          chatLog.addSystem(
+            `fast mode: ${
+              state.sessionInfo.fastMode ? "on" : "off"
+            }`,
+          );
           break;
         }
         if (args !== "on" && args !== "off") {
