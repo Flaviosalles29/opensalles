@@ -16,7 +16,7 @@ export function mkdirSafeDir(dir: string) {
 }
 
 export function makeTrackedTempDir(prefix: string, trackedDirs: string[]) {
-  const dir = path.join(os.tmpdir(), `${prefix}-${randomUUID()}`);
+  const dir = path.join(os.tmpdir(), [prefix, randomUUID()].join("-"));
   mkdirSafeDir(dir);
   trackedDirs.push(dir);
   return dir;

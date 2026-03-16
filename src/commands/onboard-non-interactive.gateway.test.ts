@@ -410,7 +410,8 @@ describe("onboard (non-interactive): gateway and remote auth", () => {
       let capturedError = "";
       const runtimeWithCapture = {
         log: () => {},
-        error: (message: string) => {
+        error: (...args: unknown[]) => {
+          const message = typeof args[0] === "string" ? args[0] : JSON.stringify(args[0] ?? null);
           capturedError = message;
           throw new Error(message);
         },

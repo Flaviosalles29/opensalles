@@ -13,6 +13,9 @@ vi.mock("./client.js", () => ({
   resolveChatUserId: vi.fn().mockResolvedValue(undefined),
 }));
 
+type WebhookDeliver = Parameters<typeof createWebhookHandler>[0]["deliver"];
+type WebhookDeliverMock = ReturnType<typeof vi.fn<WebhookDeliver>>;
+
 function makeAccount(
   overrides: Partial<ResolvedSynologyChatAccount> = {},
 ): ResolvedSynologyChatAccount {
@@ -118,9 +121,9 @@ describe("createWebhookHandler", () => {
   async function expectForbiddenByPolicy(params: {
     account: Partial<ResolvedSynologyChatAccount>;
     bodyContains: string;
-    deliver?: ReturnType<typeof vi.fn>;
+    deliver?: WebhookDeliverMock;
   }) {
-    const deliver = params.deliver ?? vi.fn();
+    const deliver: WebhookDeliverMock = params.deliver ?? vi.fn<WebhookDeliver>(async () => null);
     const handler = createWebhookHandler({
       account: makeAccount(params.account),
       deliver,
