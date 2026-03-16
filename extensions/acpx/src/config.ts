@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OpenClawPluginConfigSchema } from "openclaw/plugin-sdk/acpx";
+import type { OpenClawPluginConfigSchema, SecretInput } from "openclaw/plugin-sdk/acpx";
+import { isSecretRef, normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/acpx";
 
 export const ACPX_PERMISSION_MODES = ["approve-all", "approve-reads", "deny-all"] as const;
 export type AcpxPermissionMode = (typeof ACPX_PERMISSION_MODES)[number];
@@ -42,7 +43,7 @@ export const ACPX_LOCAL_INSTALL_COMMAND = buildAcpxLocalInstallCommand();
 export type McpServerConfig = {
   command: string;
   args?: string[];
-  env?: Record<string, string>;
+  env?: Record<string, SecretInput>;
 };
 
 export type AcpxMcpServer = {
@@ -124,7 +125,7 @@ function isMcpServerConfig(value: unknown): value is McpServerConfig {
       return false;
     }
     for (const envValue of Object.values(value.env)) {
-      if (typeof envValue !== "string") {
+      if (typeof envValue !== "string" && !isSecretRef(envValue)) {
         return false;
       }
     }
@@ -315,7 +316,21 @@ export function createAcpxPluginConfigSchema(): OpenClawPluginConfigSchema {
               },
               env: {
                 type: "object",
-                additionalProperties: { type: "string" },
+                additionalProperties: {
+                  oneOf: [
+                    { type: "string" },
+                    {
+                      type: "object",
+                      properties: {
+                        source: { type: "string", enum: ["env", "file", "exec"] },
+                        provider: { type: "string", minLength: 1 },
+                        id: { type: "string", minLength: 1 },
+                      },
+                      required: ["source", "provider", "id"],
+                      additionalProperties: false,
+                    },
+                  ],
+                },
               },
             },
             required: ["command"],
@@ -327,15 +342,30 @@ export function createAcpxPluginConfigSchema(): OpenClawPluginConfigSchema {
 }
 
 export function toAcpMcpServers(mcpServers: Record<string, McpServerConfig>): AcpxMcpServer[] {
-  return Object.entries(mcpServers).map(([name, server]) => ({
-    name,
-    command: server.command,
-    args: [...(server.args ?? [])],
-    env: Object.entries(server.env ?? {}).map(([envName, value]) => ({
-      name: envName,
-      value,
-    })),
-  }));
+  return Object.entries(mcpServers).map(([name, server]) => {
+    const resolvedEnv: Array<{ name: string; value: string }> = [];
+    for (const [envName, envValue] of Object.entries(server.env ?? {})) {
+      if (typeof envValue === "string") {
+        // Plain strings pass through as-is, including empty strings
+        resolvedEnv.push({ name: envName, value: envValue });
+      } else {
+        // Resolve SecretRef to plain string; throws if unresolved
+        const resolved = normalizeResolvedSecretInputString({
+          value: envValue,
+          path: `mcpServers.${name}.env.${envName}`,
+        });
+        if (resolved !== undefined) {
+          resolvedEnv.push({ name: envName, value: resolved });
+        }
+      }
+    }
+    return {
+      name,
+      command: server.command,
+      args: [...(server.args ?? [])],
+      env: resolvedEnv,
+    };
+  });
 }
 
 export function resolveAcpxPluginConfig(params: {
