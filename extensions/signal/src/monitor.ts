@@ -19,6 +19,7 @@ import type { SignalReactionNotificationMode } from "../../../src/config/types.j
 import type { BackoffPolicy } from "../../../src/infra/backoff.js";
 import { waitForTransportReady } from "../../../src/infra/transport-ready.js";
 import { saveMediaBuffer } from "../../../src/media/store.js";
+import { runOutboundMessageHook } from "../../../src/plugins/outbound-hook.js";
 import { createNonExitingRuntime, type RuntimeEnv } from "../../../src/runtime.js";
 import { normalizeStringEntries } from "../../../src/shared/string-normalization.js";
 import { normalizeE164 } from "../../../src/utils.js";
@@ -300,7 +301,14 @@ async function deliverReplies(params: {
     params;
   for (const payload of replies) {
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
-    const text = payload.text ?? "";
+    const hookResult = await runOutboundMessageHook({
+      to: target,
+      content: payload.text ?? "",
+      channel: "signal",
+      accountId,
+    });
+    if (hookResult === null) continue;
+    const text = hookResult.content;
     if (!text && mediaList.length === 0) {
       continue;
     }
