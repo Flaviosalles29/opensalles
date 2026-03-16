@@ -37,6 +37,7 @@ let restartCycleToken = 0;
 let emittedRestartToken = 0;
 let consumedRestartToken = 0;
 let lastRestartEmittedAt = 0;
+let handlingAuthorizedSigusr1Restart = false;
 let pendingRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingRestartDueAt = 0;
 let pendingRestartReason: string | undefined;
@@ -173,6 +174,11 @@ export function consumeGatewaySigusr1RestartAuthorization(): boolean {
   return true;
 }
 
+export function hasGatewaySigusr1RestartAuthorization(): boolean {
+  resetSigusr1AuthorizationIfExpired();
+  return sigusr1AuthorizedCount > 0;
+}
+
 /**
  * Mark the currently emitted SIGUSR1 restart cycle as consumed by the run loop.
  * This explicitly advances the cycle state instead of resetting emit guards inside
@@ -182,6 +188,14 @@ export function markGatewaySigusr1RestartHandled(): void {
   if (hasUnconsumedRestartSignal()) {
     consumedRestartToken = emittedRestartToken;
   }
+  handlingAuthorizedSigusr1Restart = true;
+  queueMicrotask(() => {
+    handlingAuthorizedSigusr1Restart = false;
+  });
+}
+
+export function isGatewaySigusr1RestartHandling(): boolean {
+  return handlingAuthorizedSigusr1Restart;
 }
 
 export type RestartDeferralHooks = {
@@ -502,6 +516,7 @@ export const __testing = {
     sigusr1AuthorizedCount = 0;
     sigusr1AuthorizedUntil = 0;
     sigusr1ExternalAllowed = false;
+    handlingAuthorizedSigusr1Restart = false;
     preRestartCheck = null;
     restartCycleToken = 0;
     emittedRestartToken = 0;
