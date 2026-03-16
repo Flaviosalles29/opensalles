@@ -707,4 +707,49 @@ describe("gateway agent handler", () => {
       }),
     );
   });
+
+  it("returns structured fields for cached agent.wait snapshots", async () => {
+    const respond = vi.fn();
+    const context = makeContext();
+    context.chatAbortControllers = new Map();
+    context.dedupe.set("agent:wait-cached", {
+      ts: Date.now(),
+      ok: true,
+      payload: {
+        status: "ok",
+        startedAt: 10,
+        endedAt: 20,
+        stopReason: "tool_calls",
+        pendingToolCalls: [
+          {
+            id: "call-1",
+            name: "emit_structured_result",
+            arguments: '{"entries":[]}',
+          },
+        ],
+      },
+    });
+
+    await agentHandlers["agent.wait"]({
+      params: { runId: "wait-cached", timeoutMs: 100 },
+      respond,
+      context,
+    } as unknown as Parameters<(typeof agentHandlers)["agent.wait"]>[0]);
+
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        runId: "wait-cached",
+        status: "ok",
+        stopReason: "tool_calls",
+        pendingToolCalls: [
+          {
+            id: "call-1",
+            name: "emit_structured_result",
+            arguments: '{"entries":[]}',
+          },
+        ],
+      }),
+    );
+  });
 });

@@ -1,4 +1,5 @@
 import type { DedupeEntry } from "../server-shared.js";
+import { parsePendingToolCalls } from "./pending-tool-calls.js";
 
 export type AgentWaitTerminalSnapshot = {
   status: "ok" | "error" | "timeout";
@@ -27,44 +28,6 @@ function parseRunIdFromDedupeKey(key: string): string | null {
 
 function asFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function parsePendingToolCalls(value: unknown):
-  | Array<{
-      id: string;
-      name: string;
-      arguments: string;
-    }>
-  | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const calls = value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-      const record = entry as Record<string, unknown>;
-      return typeof record.id === "string" &&
-        typeof record.name === "string" &&
-        typeof record.arguments === "string"
-        ? {
-            id: record.id,
-            name: record.name,
-            arguments: record.arguments,
-          }
-        : null;
-    })
-    .filter(
-      (
-        entry,
-      ): entry is {
-        id: string;
-        name: string;
-        arguments: string;
-      } => entry !== null,
-    );
-  return calls.length > 0 ? calls : undefined;
 }
 
 function removeWaiter(runId: string, waiter: () => void): void {

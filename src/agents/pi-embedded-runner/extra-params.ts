@@ -2,6 +2,7 @@ import type { StreamFn } from "@mariozechner/pi-agent-core";
 import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
+import type { AgentStreamParams } from "../../commands/agent/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   prepareProviderExtraParams,
@@ -76,8 +77,27 @@ export function resolveExtraParams(params: {
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: "none" | "short" | "long";
   openaiWsWarmup?: boolean;
-  toolChoice?: unknown;
+  toolChoice?: NonNullable<AgentStreamParams["toolChoice"]>;
 };
+
+function isToolChoiceOverride(
+  value: unknown,
+): value is NonNullable<AgentStreamParams["toolChoice"]> {
+  if (value === "auto" || value === "none" || value === "required") {
+    return true;
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const fn = record.function;
+  return (
+    record.type === "function" &&
+    !!fn &&
+    typeof fn === "object" &&
+    typeof (fn as Record<string, unknown>).name === "string"
+  );
+}
 
 function createStreamFnWithExtraParams(
   baseStreamFn: StreamFn | undefined,
@@ -95,7 +115,7 @@ function createStreamFnWithExtraParams(
   if (typeof extraParams.maxTokens === "number") {
     streamParams.maxTokens = extraParams.maxTokens;
   }
-  if (extraParams.toolChoice !== undefined) {
+  if (isToolChoiceOverride(extraParams.toolChoice)) {
     streamParams.toolChoice = extraParams.toolChoice;
   }
   const transport = extraParams.transport;

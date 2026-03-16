@@ -726,6 +726,8 @@ export const agentHandlers: GatewayRequestHandlers = {
         startedAt: cachedGatewaySnapshot.startedAt,
         endedAt: cachedGatewaySnapshot.endedAt,
         error: cachedGatewaySnapshot.error,
+        stopReason: cachedGatewaySnapshot.stopReason,
+        pendingToolCalls: cachedGatewaySnapshot.pendingToolCalls,
       });
       return;
     }

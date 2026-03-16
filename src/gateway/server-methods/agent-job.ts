@@ -1,4 +1,5 @@
 import { onAgentEvent } from "../../infra/agent-events.js";
+import { parsePendingToolCalls } from "./pending-tool-calls.js";
 
 const AGENT_RUN_CACHE_TTL_MS = 10 * 60_000;
 /**
@@ -93,33 +94,7 @@ function createSnapshotFromLifecycleEvent(params: {
   const endedAt = typeof data?.endedAt === "number" ? data.endedAt : undefined;
   const error = typeof data?.error === "string" ? data.error : undefined;
   const stopReason = typeof data?.stopReason === "string" ? data.stopReason : undefined;
-  const pendingToolCalls = Array.isArray(data?.pendingToolCalls)
-    ? data.pendingToolCalls
-        .map((value) => {
-          if (!value || typeof value !== "object") {
-            return null;
-          }
-          const record = value as Record<string, unknown>;
-          return typeof record.id === "string" &&
-            typeof record.name === "string" &&
-            typeof record.arguments === "string"
-            ? {
-                id: record.id,
-                name: record.name,
-                arguments: record.arguments,
-              }
-            : null;
-        })
-        .filter(
-          (
-            value,
-          ): value is {
-            id: string;
-            name: string;
-            arguments: string;
-          } => value !== null,
-        )
-    : undefined;
+  const pendingToolCalls = parsePendingToolCalls(data?.pendingToolCalls);
   return {
     runId,
     status: phase === "error" ? "error" : data?.aborted ? "timeout" : "ok",

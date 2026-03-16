@@ -1941,11 +1941,9 @@ export async function runEmbeddedAttempt(
 
       const effectiveStreamParams: Record<string, unknown> = {
         ...params.streamParams,
-        fastMode: params.fastMode,
+        ...(params.fastMode !== undefined ? { fastMode: params.fastMode } : {}),
+        ...(allowedToolNames.size === 0 ? { toolChoice: "none" } : {}),
       };
-      if (allowedToolNames.size === 0) {
-        effectiveStreamParams.toolChoice = undefined;
-      }
       applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
