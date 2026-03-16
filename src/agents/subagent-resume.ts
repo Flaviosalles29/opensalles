@@ -460,6 +460,17 @@ function scanSessionsDirForTranscriptCandidate(
           // Platform supports real birth-time — use strict tolerance.
           const timeDiffMs = Math.abs(stat.birthtimeMs - targetCreatedAtMs);
           if (timeDiffMs <= toleranceMs) {
+            // Verify the transcript belongs to the target child session by
+            // checking its header sessionId is not already claimed by a
+            // different session-store entry.  Without this, a timing
+            // coincidence could bind an unrelated transcript.
+            const headerSessionId = readTranscriptSessionId(fullPath);
+            if (headerSessionId) {
+              const normalizedHeaderId = headerSessionId.toLowerCase();
+              if (claimedSessionIds && claimedSessionIds.has(normalizedHeaderId)) {
+                continue;
+              }
+            }
             candidates.push(fullPath);
           }
         } else {

@@ -886,6 +886,51 @@ describe("rehydrateSessionStoreEntries", () => {
       // best-effort cleanup
     }
   });
+
+  it("rejects transcript candidate whose sessionId is already claimed by another session-store entry", async () => {
+    const agentId = "main";
+    const sessionsDir = `/tmp/octest/agents/${agentId}/sessions`;
+    const storePath = path.join(sessionsDir, "sessions.json");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    // Create a transcript whose sessionId is already claimed by another entry
+    // in the session store. The scanner should reject it.
+    const claimedSessionId = "already-claimed-sess";
+    const transcriptPath = path.join(sessionsDir, `${claimedSessionId}.jsonl`);
+    fs.writeFileSync(transcriptPath, `${sessionHeaderLine(claimedSessionId)}\n`);
+
+    const createdAt = Date.now() - 500;
+    const entry = makeRun({
+      runId: "run-claimed",
+      childSessionKey: `agent:${agentId}:subagent:run-claimed`,
+      createdAt,
+    });
+    const runs = new Map([[entry.runId, entry]]);
+
+    // Return a store that already claims this sessionId under a DIFFERENT key.
+    mockLoadSessionStore.mockReturnValue({
+      "agent:main:subagent:other-run": {
+        sessionId: claimedSessionId,
+        updatedAt: Date.now(),
+      },
+    });
+
+    await rehydrateSessionStoreEntries(runs);
+
+    // No synthetic entry should have been written because the only candidate
+    // transcript was already claimed by another session-store entry.
+    const written = fs.existsSync(storePath)
+      ? (JSON.parse(fs.readFileSync(storePath, "utf-8")) as Record<string, unknown>)
+      : {};
+    const normalizedKey = entry.childSessionKey.toLowerCase();
+    expect(written[normalizedKey]).toBeUndefined();
+
+    try {
+      fs.rmSync(sessionsDir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
