@@ -1,6 +1,22 @@
 import { existsSync } from "node:fs";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { hasPotentialConfiguredChannels } from "../channels/config-presence.js";
+
+const IGNORED_CHANNEL_KEYS = new Set(["defaults", "modelByChannel"]);
+
+/**
+ * Broader check than {@link hasPotentialConfiguredChannels}: returns true when
+ * *any* channel section exists in the config (even `{ enabled: false }`).
+ * Used for plugin-registry preloading so the status display can report on
+ * channels the user has explicitly touched.
+ */
+function hasAnyChannelConfigSection(cfg: OpenClawConfig): boolean {
+  const ch = cfg.channels;
+  if (!ch || typeof ch !== "object" || Array.isArray(ch)) {
+    return false;
+  }
+  return Object.keys(ch).some((k) => !IGNORED_CHANNEL_KEYS.has(k));
+}
 import { resolveCommandSecretRefsViaGateway } from "../cli/command-secret-gateway.js";
 import { getStatusCommandSecretTargetIds } from "../cli/command-secret-targets.js";
 import { withProgress } from "../cli/progress.js";
@@ -196,6 +212,7 @@ async function resolveMemoryStatusSnapshot(params: {
   cfg: OpenClawConfig;
   agentStatus: Awaited<ReturnType<typeof getAgentLocalStatuses>>;
   memoryPlugin: MemoryPluginStatus;
+  force?: boolean;
 }): Promise<MemoryStatusSnapshot | null> {
   const { cfg, agentStatus, memoryPlugin } = params;
   if (!memoryPlugin.enabled) {
@@ -205,14 +222,16 @@ async function resolveMemoryStatusSnapshot(params: {
     return null;
   }
   const agentId = agentStatus.defaultId ?? "main";
-  const resolvedMemory = resolveMemorySearchConfig(cfg, agentId);
-  if (!resolvedMemory) {
-    return null;
-  }
-  const shouldInspectStore =
-    hasExplicitMemorySearchConfig(cfg, agentId) || existsSync(resolvedMemory.store.path);
-  if (!shouldInspectStore) {
-    return null;
+  if (!params.force) {
+    const resolvedMemory = resolveMemorySearchConfig(cfg, agentId);
+    if (!resolvedMemory) {
+      return null;
+    }
+    const shouldInspectStore =
+      hasExplicitMemorySearchConfig(cfg, agentId) || existsSync(resolvedMemory.store.path);
+    if (!shouldInspectStore) {
+      return null;
+    }
   }
   const { getMemorySearchManager } = await loadStatusScanDepsRuntimeModule();
   const { manager } = await getMemorySearchManager({ cfg, agentId, purpose: "status" });
@@ -228,6 +247,7 @@ async function resolveMemoryStatusSnapshot(params: {
 }
 
 async function scanStatusJsonFast(opts: {
+  deep?: boolean;
   timeoutMs?: number;
   all?: boolean;
 }): Promise<StatusScanResult> {
@@ -239,7 +259,7 @@ async function scanStatusJsonFast(opts: {
       targetIds: getStatusCommandSecretTargetIds(),
       mode: "read_only_status",
     });
-  if (hasPotentialConfiguredChannels(cfg)) {
+  if (hasAnyChannelConfigSection(cfg) || hasPotentialConfiguredChannels(cfg)) {
     const { ensurePluginRegistryLoaded } = await loadPluginRegistryModule();
     ensurePluginRegistryLoaded({ scope: "configured-channels" });
   }
@@ -292,8 +312,12 @@ async function scanStatusJsonFast(opts: {
     ? pickGatewaySelfPresence(gatewayProbe.presence)
     : null;
   const memoryPlugin = resolveMemoryPluginStatus(cfg);
-  const memoryPromise = resolveMemoryStatusSnapshot({ cfg, agentStatus, memoryPlugin });
-  const memory = await memoryPromise;
+  const memory = await resolveMemoryStatusSnapshot({
+    cfg,
+    agentStatus,
+    memoryPlugin,
+    force: opts.deep === true || opts.all === true,
+  });
 
   return {
     cfg,
@@ -324,13 +348,18 @@ async function scanStatusJsonFast(opts: {
 export async function scanStatus(
   opts: {
     json?: boolean;
+    deep?: boolean;
     timeoutMs?: number;
     all?: boolean;
   },
   _runtime: RuntimeEnv,
 ): Promise<StatusScanResult> {
   if (opts.json) {
-    return await scanStatusJsonFast({ timeoutMs: opts.timeoutMs, all: opts.all });
+    return await scanStatusJsonFast({
+      deep: opts.deep,
+      timeoutMs: opts.timeoutMs,
+      all: opts.all,
+    });
   }
   return await withProgress(
     {
@@ -423,7 +452,12 @@ export async function scanStatus(
 
       progress.setLabel("Checking memory…");
       const memoryPlugin = resolveMemoryPluginStatus(cfg);
-      const memory = await resolveMemoryStatusSnapshot({ cfg, agentStatus, memoryPlugin });
+      const memory = await resolveMemoryStatusSnapshot({
+        cfg,
+        agentStatus,
+        memoryPlugin,
+        force: true,
+      });
       progress.tick();
 
       progress.setLabel("Reading sessions…");

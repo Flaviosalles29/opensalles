@@ -157,6 +157,8 @@ export function createNativeCommandsHarness(params?: {
     },
   } as const;
 
+  replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher.mockClear();
+
   registerTelegramNativeCommands({
     bot: bot as unknown as Parameters<typeof registerTelegramNativeCommands>[0]["bot"],
     cfg: params?.cfg ?? ({} as OpenClawConfig),

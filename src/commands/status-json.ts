@@ -32,13 +32,15 @@ export async function statusJsonCommand(
   },
   runtime: RuntimeEnv,
 ) {
+  const includeFullDiagnostics = opts.deep === true || opts.all === true;
   const scan = await scanStatusJsonFast({ timeoutMs: opts.timeoutMs, all: opts.all }, runtime);
   const securityAudit = await loadSecurityAuditModule().then(({ runSecurityAudit }) =>
     runSecurityAudit({
       config: scan.cfg,
       sourceConfig: scan.sourceConfig,
       deep: false,
-      includeFilesystem: true,
+      // Keep the default JSON status path lightweight unless full diagnostics were requested.
+      includeFilesystem: includeFullDiagnostics,
       includeChannelSecurity: true,
     }),
   );
@@ -48,7 +50,7 @@ export async function statusJsonCommand(
         loadProviderUsageSummary({ timeoutMs: opts.timeoutMs }),
       )
     : undefined;
-  const gatewayCall = opts.deep
+  const gatewayCall = includeFullDiagnostics
     ? await loadGatewayCallModule().then((mod) => mod.callGateway)
     : null;
   const health =

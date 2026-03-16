@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,10 @@ async function createTempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function canonicalExistingPath(filePath: string): string {
+  return fsSync.realpathSync.native(filePath);
 }
 
 afterEach(async () => {
@@ -72,11 +77,16 @@ describe("loadEnabledBundleMcpConfig", () => {
         workspaceDir,
         cfg: config,
       });
-      const resolvedServerPath = await fs.realpath(serverPath);
+      const args = loaded.config.mcpServers.bundleProbe?.args;
 
       expect(loaded.diagnostics).toEqual([]);
       expect(loaded.config.mcpServers.bundleProbe?.command).toBe("node");
-      expect(loaded.config.mcpServers.bundleProbe?.args).toEqual([resolvedServerPath]);
+      expect(Array.isArray(args)).toBe(true);
+      if (!Array.isArray(args)) {
+        throw new Error("bundleProbe args should be an array");
+      }
+      expect(args).toHaveLength(1);
+      expect(canonicalExistingPath(String(args[0]))).toBe(canonicalExistingPath(serverPath));
     } finally {
       env.restore();
     }
