@@ -70,6 +70,9 @@ vi.mock("../gateway/call.js", () => ({
   callGateway: vi.fn(async () => ({ status: "ok", runId: "new-run-id" })),
 }));
 
+import { callGateway as mockCallGatewayFn } from "../gateway/call.js";
+const mockCallGateway = vi.mocked(mockCallGatewayFn);
+
 vi.mock("../logging/subsystem.js", () => ({
   createSubsystemLogger: () => ({
     debug: vi.fn(),
@@ -113,6 +116,7 @@ vi.mock("./subagent-depth.js", () => ({
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 import {
   readTranscriptSessionId,
+  redispatchSubagentRunAfterRestart,
   rehydrateSessionStoreEntries,
   resolveSubagentRunResumability,
   routeResumedRun,
@@ -834,6 +838,46 @@ describe("rehydrateSessionStoreEntries", () => {
       // best-effort cleanup
     }
   });
+
+  it("uses stored spawnDepth from run record when available (comment 2 fix)", async () => {
+    const agentId = "main";
+    const sessionsDir = `/tmp/octest/agents/${agentId}/sessions`;
+    const storePath = path.join(sessionsDir, "sessions.json");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const sessionId = "depth-test-sess";
+    const transcriptPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+    fs.writeFileSync(transcriptPath, `${sessionHeaderLine(sessionId)}\n`);
+
+    const createdAt = Date.now() - 500;
+    // Entry with spawnDepth: 3 (a nested sub-sub-subagent)
+    const entry = makeRun({
+      runId: "run-depth",
+      childSessionKey: `agent:${agentId}:subagent:run-depth`,
+      createdAt,
+      spawnDepth: 3,
+    });
+    const runs = new Map([[entry.runId, entry]]);
+    mockLoadSessionStore.mockReturnValue({});
+
+    await rehydrateSessionStoreEntries(runs);
+
+    const written = fs.existsSync(storePath)
+      ? (JSON.parse(fs.readFileSync(storePath, "utf-8")) as Record<string, unknown>)
+      : {};
+
+    const normalizedKey = entry.childSessionKey.toLowerCase();
+    const injected = written[normalizedKey] as Record<string, unknown> | undefined;
+    expect(injected).toBeDefined();
+    // Must use the stored spawnDepth (3) directly, NOT getSubagentDepthFromSessionStore+1 (2).
+    expect(injected?.spawnDepth).toBe(3);
+
+    try {
+      fs.rmSync(sessionsDir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -989,5 +1033,67 @@ describe("routeResumedRun", () => {
     } catch {
       // ignore
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redispatchSubagentRunAfterRestart — metadata forwarding (comments 1 + 3)
+// ---------------------------------------------------------------------------
+
+describe("redispatchSubagentRunAfterRestart — metadata forwarding", () => {
+  it("forwards requesterOrigin context, label, workspaceDir, and extraSystemPrompt to the agent dispatch (comments 1 + 3)", async () => {
+    // Capture callGateway calls without disturbing other mocks.
+    const capturedCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    mockCallGateway.mockImplementationOnce(
+      async (req: { method: string; params: Record<string, unknown> }) => {
+        capturedCalls.push({ method: req.method, params: req.params ?? {} });
+        return { runId: "dispatched-run-id" };
+      },
+    );
+    // Second call is agent.wait.
+    mockCallGateway.mockImplementationOnce(async () => ({ status: "ok", endedAt: Date.now() }));
+
+    const entry = makeRun({
+      runId: "run-fwd",
+      childSessionKey: "agent:main:subagent:fwd-run",
+      label: "my-label",
+      workspaceDir: "/workspace/project",
+      requesterOrigin: {
+        channel: "telegram",
+        accountId: "acc-123",
+        to: "user-456",
+        threadId: "thread-789",
+      },
+      task: "forward metadata test",
+      extraSystemPrompt: "custom-prompt-with-attachment-suffix",
+    });
+
+    const onComplete = vi.fn().mockResolvedValue(undefined);
+
+    await redispatchSubagentRunAfterRestart(
+      entry.runId,
+      entry,
+      10_000,
+      onComplete,
+      true, // suppressNotifications
+    );
+
+    // The `agent` dispatch call must include all the original spawn metadata.
+    expect(capturedCalls.length).toBeGreaterThanOrEqual(1);
+    const agentCall = capturedCalls.find((c) => c.method === "agent");
+    expect(agentCall?.method).toBe("agent");
+    expect(agentCall?.params).toMatchObject({
+      label: "my-label",
+      channel: "telegram",
+      accountId: "acc-123",
+      to: "user-456",
+      threadId: "thread-789",
+      workspaceDir: "/workspace/project",
+      spawnedBy: entry.requesterSessionKey,
+      // extraSystemPrompt must be restored verbatim, not rebuilt by buildSubagentSystemPrompt.
+      extraSystemPrompt: "custom-prompt-with-attachment-suffix",
+    });
+
+    expect(onComplete).toHaveBeenCalledWith(entry.runId, expect.any(Number), { status: "ok" });
   });
 });

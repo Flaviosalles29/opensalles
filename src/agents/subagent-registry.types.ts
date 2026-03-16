@@ -15,6 +15,13 @@ export type SubagentRunRecord = {
   label?: string;
   model?: string;
   workspaceDir?: string;
+  /**
+   * The child's spawn depth at the time of initial dispatch.  Stored so that
+   * restart-recovery rehydration can inject a correct synthetic session-store
+   * entry without needing to recompute the depth from the (possibly degraded)
+   * parent session store.
+   */
+  spawnDepth?: number;
   runTimeoutSeconds?: number;
   spawnMode?: SpawnSubagentMode;
   createdAt: number;

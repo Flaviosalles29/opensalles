@@ -512,14 +512,15 @@ export async function rehydrateSessionStoreEntries(
       }
 
       // Build a minimal synthetic session-store entry.
-      // Derive the child's spawn depth from the requester's depth rather than
-      // hardcoding 1, so that recovered depth-2+ runs are classified correctly
-      // by getSubagentDepthFromSessionStore (which prefers stored spawnDepth
-      // over ancestry traversal).
-      const requesterSpawnDepth = getSubagentDepthFromSessionStore(entry.requesterSessionKey, {
-        cfg,
-      });
-      const childSpawnDepth = requesterSpawnDepth + 1;
+      // Prefer the spawnDepth stored on the run record at spawn time so the
+      // rehydrated entry is exact regardless of whether the requester's own
+      // session-store entry survived the restart.  Fall back to deriving from
+      // the requester's depth when the field is absent (runs registered before
+      // this field was added).
+      const childSpawnDepth =
+        typeof entry.spawnDepth === "number" && entry.spawnDepth > 0
+          ? entry.spawnDepth
+          : getSubagentDepthFromSessionStore(entry.requesterSessionKey, { cfg }) + 1;
       const sessionFile = path.relative(sessionsDir, transcriptPath);
       const synthetic: SessionEntry = {
         sessionId,
@@ -841,6 +842,17 @@ export async function redispatchSubagentRunAfterRestart(
           lane: AGENT_LANE_SUBAGENT,
           timeout: entry.runTimeoutSeconds,
           extraSystemPrompt,
+          label: entry.label,
+          // Preserve the full requester origin context so the gateway can
+          // route delivery and resolve the agent's channel/account scope
+          // identically to the original spawn dispatch.
+          channel: entry.requesterOrigin?.channel ?? undefined,
+          to: entry.requesterOrigin?.to ?? undefined,
+          accountId: entry.requesterOrigin?.accountId ?? undefined,
+          threadId:
+            entry.requesterOrigin?.threadId != null
+              ? String(entry.requesterOrigin.threadId)
+              : undefined,
           // Preserve original run's depth/parent context and workspace so the
           // session tree and any relative-path file operations remain consistent
           // after restart (fix for comment 1: include workspaceDir from entry).

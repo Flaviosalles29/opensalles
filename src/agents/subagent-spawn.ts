@@ -705,6 +705,7 @@ export async function spawnSubagentDirect(
       label: label || undefined,
       model: resolvedModel,
       workspaceDir: spawnedMetadata.workspaceDir,
+      spawnDepth: childDepth,
       runTimeoutSeconds,
       expectsCompletionMessage,
       spawnMode,
