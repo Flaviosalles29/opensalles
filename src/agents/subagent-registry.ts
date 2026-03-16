@@ -57,6 +57,7 @@ import {
   restoreSubagentRunsFromDisk,
 } from "./subagent-registry-state.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
+import { rehydrateSessionStoreEntries, routeResumedRun } from "./subagent-resume.js";
 import { resolveAgentTimeoutMs } from "./timeout.js";
 
 export type { SubagentRunRecord } from "./subagent-registry.types.js";
@@ -650,14 +651,62 @@ function resumeSubagentRun(runId: string) {
     return;
   }
 
-  // Wait for completion again after restart.
+  // Classify the run and route to the appropriate recovery path.
   const cfg = loadConfig();
   const waitTimeoutMs = resolveSubagentWaitTimeoutMs(cfg, entry.runTimeoutSeconds);
+  const handled = routeResumedRun({
+    runId,
+    entry,
+    waitTimeoutMs,
+    onCompleteReplay: async (replayRunId, endedAt) => {
+      await completeSubagentRun({
+        runId: replayRunId,
+        endedAt,
+        outcome: { status: "ok" },
+        reason: SUBAGENT_ENDED_REASON_COMPLETE,
+        sendFarewell: true,
+        accountId: entry.requesterOrigin?.accountId,
+        triggerCleanup: true,
+      });
+    },
+    onCompleteRedispatch: async (redispatchRunId, endedAt, outcome) => {
+      const runOutcome =
+        outcome.status === "error"
+          ? {
+              status: "error" as const,
+              error: (outcome as { status: string; error?: string }).error,
+            }
+          : outcome.status === "timeout"
+            ? { status: "timeout" as const }
+            : { status: "ok" as const };
+      await completeSubagentRun({
+        runId: redispatchRunId,
+        endedAt,
+        outcome: runOutcome,
+        reason:
+          outcome.status === "error" ? SUBAGENT_ENDED_REASON_ERROR : SUBAGENT_ENDED_REASON_COMPLETE,
+        sendFarewell: true,
+        accountId: entry.requesterOrigin?.accountId,
+        triggerCleanup: true,
+      });
+    },
+    onResumeCleanup: (failedRunId) => {
+      resumedRuns.delete(failedRunId);
+    },
+  });
+  if (handled) {
+    resumedRuns.add(runId);
+    return;
+  }
+
+  // Default: wait for completion (covers cases where the gateway dedupe cache
+  // still has a valid snapshot, or agent.wait returns a timeout result that
+  // completeSubagentRun can handle).
   void waitForSubagentCompletion(runId, waitTimeoutMs);
   resumedRuns.add(runId);
 }
 
-function restoreSubagentRunsOnce() {
+async function restoreSubagentRunsOnce(): Promise<void> {
   if (restoreAttempted) {
     return;
   }
@@ -670,6 +719,16 @@ function restoreSubagentRunsOnce() {
     if (restoredCount === 0) {
       return;
     }
+    // Ordering: rehydrateSessionStoreEntries MUST run before
+    // reconcileOrphanedRestoredRuns.  The rehydration step injects synthetic
+    // session-store entries for runs whose store write fell inside the ~400 ms
+    // race window between sessions_spawn returning and the first store write
+    // completing.  reconcileOrphanedRestoredRuns reads the session store to
+    // determine the orphan reason; if it runs first it will mis-classify these
+    // runs as "missing-session-entry" orphans and prune them incorrectly.
+    // rehydrateSessionStoreEntries is async (writes via updateSessionStore to
+    // serialise concurrent store writers during startup through the lock).
+    await rehydrateSessionStoreEntries(subagentRuns);
     if (reconcileOrphanedRestoredRuns()) {
       persistSubagentRuns();
     }
@@ -1181,12 +1240,14 @@ export function registerSubagentRun(params: {
   label?: string;
   model?: string;
   workspaceDir?: string;
+  spawnDepth?: number;
   runTimeoutSeconds?: number;
   expectsCompletionMessage?: boolean;
   spawnMode?: "run" | "session";
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  extraSystemPrompt?: string;
 }) {
   const now = Date.now();
   const cfg = loadConfig();
@@ -1211,6 +1272,7 @@ export function registerSubagentRun(params: {
     label: params.label,
     model: params.model,
     workspaceDir: params.workspaceDir,
+    spawnDepth: params.spawnDepth,
     runTimeoutSeconds,
     createdAt: now,
     startedAt: now,
@@ -1220,6 +1282,7 @@ export function registerSubagentRun(params: {
     attachmentsDir: params.attachmentsDir,
     attachmentsRootDir: params.attachmentsRootDir,
     retainAttachmentsOnKeep: params.retainAttachmentsOnKeep,
+    extraSystemPrompt: params.extraSystemPrompt,
   });
   ensureListener();
   persistSubagentRuns();
@@ -1494,5 +1557,5 @@ export function listDescendantRunsForRequester(rootSessionKey: string): Subagent
 }
 
 export function initSubagentRegistry() {
-  restoreSubagentRunsOnce();
+  void restoreSubagentRunsOnce();
 }
