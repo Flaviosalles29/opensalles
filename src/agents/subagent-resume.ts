@@ -357,6 +357,46 @@ function findEntryByKey(
 // ---------------------------------------------------------------------------
 
 /**
+ * Read the transcript header and check whether its `timestamp` field is within
+ * `toleranceMs` of `targetCreatedAtMs`.  Returns `true` when the header is
+ * missing, malformed, or has no timestamp (benefit of the doubt — the
+ * one-candidate constraint still applies).  Returns `false` only when a valid
+ * timestamp is present and falls outside the tolerance window.
+ */
+function isTranscriptHeaderWithinTolerance(
+  transcriptPath: string,
+  targetCreatedAtMs: number,
+  toleranceMs: number,
+): boolean {
+  try {
+    const content = fs.readFileSync(transcriptPath, "utf-8");
+    const firstLine = content.split("\n")[0]?.trim();
+    if (!firstLine) {
+      return true; // No header — give benefit of the doubt
+    }
+    const parsed = JSON.parse(firstLine) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      (parsed as Record<string, unknown>).type === "session"
+    ) {
+      const timestamp = (parsed as Record<string, unknown>).timestamp;
+      if (typeof timestamp === "string" && timestamp.trim()) {
+        const headerMs = new Date(timestamp).getTime();
+        if (!Number.isNaN(headerMs)) {
+          return Math.abs(headerMs - targetCreatedAtMs) <= toleranceMs;
+        }
+      }
+      // No parseable timestamp — give benefit of the doubt
+      return true;
+    }
+    return true; // Not a session header — give benefit of the doubt
+  } catch {
+    return true; // Read error — give benefit of the doubt
+  }
+}
+
+/**
  * Scan `sessionsDir` for a `.jsonl` transcript whose creation time is close to
  * `targetCreatedAtMs` (within `toleranceMs`).  Uses `stat.birthtimeMs`
  * (creation time) as the primary signal.
@@ -366,10 +406,12 @@ function findEntryByKey(
  * so a long-running subagent can exceed the tolerance even when the file is the
  * correct match.  To handle this, when `birthtimeMs === mtimeMs` we include
  * any `.jsonl` file whose session ID (from the transcript header) is **not**
- * already claimed by an existing session-store entry.  This avoids the pitfall
- * of substring-matching independent UUIDs (session IDs vs session keys are
- * generated separately).  When real `birthtimeMs` is available, the strict
- * tolerance applies and the one-candidate constraint prevents false matches.
+ * already claimed by an existing session-store entry **and** whose header
+ * timestamp is within `toleranceMs` of the target creation time.  The
+ * timestamp check prevents binding a stale/unrelated transcript to the wrong
+ * run when it happens to be the only unclaimed file.  When real `birthtimeMs`
+ * is available, the strict tolerance applies and the one-candidate constraint
+ * prevents false matches.
  *
  * Returns the absolute path of the candidate if exactly one candidate is found,
  * otherwise `null`.
@@ -383,6 +425,10 @@ function scanSessionsDirForTranscriptCandidate(
     /** Session store (already loaded) — used on Linux to filter out files that
      *  are already claimed by an existing session-store key. */
     sessionStore?: Record<string, SessionEntry>;
+    /** When true (Linux fallback), also verify the transcript header's timestamp
+     *  is within toleranceMs of targetCreatedAtMs. Prevents binding stale
+     *  transcripts to the wrong run. */
+    requireHeaderTimestampCheck?: boolean;
   },
 ): string | null {
   try {
@@ -424,15 +470,22 @@ function scanSessionsDirForTranscriptCandidate(
           // matching between them would never match.
           //
           // Instead, include any `.jsonl` file whose session ID is not already
-          // claimed by an existing session-store entry.  The one-candidate
-          // constraint (below) then selects the file only when the match is
-          // unambiguous.
+          // claimed by an existing session-store entry AND whose header
+          // timestamp is within a reasonable time window of the target run.
+          // This prevents binding a stale/unrelated transcript to the wrong
+          // run when it happens to be the only unclaimed file.
           birthtimeUnavailable = true;
           const headerSessionId = readTranscriptSessionId(fullPath);
           if (headerSessionId) {
             const normalizedHeaderId = headerSessionId.toLowerCase();
             // Skip files already claimed by an existing store entry.
             if (claimedSessionIds && claimedSessionIds.has(normalizedHeaderId)) {
+              continue;
+            }
+            // Additional safety: verify the transcript header's timestamp is
+            // plausibly close to the target run's creation time.  This rejects
+            // old transcripts that just happen to not be in the store yet.
+            if (!isTranscriptHeaderWithinTolerance(fullPath, targetCreatedAtMs, toleranceMs)) {
               continue;
             }
             candidates.push(fullPath);
@@ -777,6 +830,10 @@ export async function redispatchSubagentRunAfterRestart(
   // it fires on every exit path (fix for resume-lock leak on early return or
   // thrown error).
   let onCompleteCalled = false;
+  // Track whether the child dispatch succeeded — if it did and agent.wait
+  // throws (transient RPC disconnect/timeout), we must NOT mark the parent run
+  // as terminally failed because the child may still be executing successfully.
+  let childDispatchSucceeded = false;
   const safeComplete = async (endedAt: number, outcome: { status: string }): Promise<void> => {
     if (!onCompleteCalled) {
       await onComplete(runId, endedAt, outcome);
@@ -893,6 +950,7 @@ export async function redispatchSubagentRunAfterRestart(
       if (typeof response?.runId === "string" && response.runId) {
         newRunId = response.runId;
       }
+      childDispatchSucceeded = true;
     } catch (err) {
       defaultRuntime.log(
         `[warn] subagent-resume: redispatch agent call failed run=${runId}: ${String(err)}`,
@@ -937,13 +995,27 @@ export async function redispatchSubagentRunAfterRestart(
     // Guarantee onComplete is always called even when an early return or
     // unexpected error prevented the normal completion path from running.
     // This ensures the resume lock is never permanently leaked (fix for comment 4).
+    //
+    // However, if the child was successfully dispatched and only agent.wait
+    // threw (transient RPC disconnect/timeout), forcing status:"error" would
+    // mark the parent run as terminally failed even though the child may still
+    // be executing.  In that case, log a warning and leave the run in its
+    // current (retryable) state so a subsequent reconciliation pass can pick
+    // it up.  We only force error when dispatch itself never succeeded.
     if (!onCompleteCalled) {
-      try {
-        await onComplete(runId, Date.now(), { status: "error" });
-      } catch (err) {
-        defaultRuntime.log(
-          `[warn] subagent-resume: finally-path onComplete failed run=${runId}: ${String(err)}`,
+      if (childDispatchSucceeded) {
+        log.warn(
+          "agent.wait failed after successful redispatch; leaving run in retryable state",
+          { runId },
         );
+      } else {
+        try {
+          await onComplete(runId, Date.now(), { status: "error" });
+        } catch (err) {
+          defaultRuntime.log(
+            `[warn] subagent-resume: finally-path onComplete failed run=${runId}: ${String(err)}`,
+          );
+        }
       }
     }
   }
