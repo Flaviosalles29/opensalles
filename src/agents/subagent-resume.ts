@@ -545,6 +545,9 @@ export async function rehydrateSessionStoreEntries(
         sessionFile,
         spawnedBy: entry.requesterSessionKey,
         spawnDepth: childSpawnDepth,
+        ...(typeof entry.workspaceDir === "string" && entry.workspaceDir.trim()
+          ? { spawnedWorkspaceDir: entry.workspaceDir }
+          : undefined),
       };
 
       // Write the synthetic entry via updateSessionStore so that concurrent
@@ -776,8 +779,8 @@ export async function redispatchSubagentRunAfterRestart(
   let onCompleteCalled = false;
   const safeComplete = async (endedAt: number, outcome: { status: string }): Promise<void> => {
     if (!onCompleteCalled) {
-      onCompleteCalled = true;
       await onComplete(runId, endedAt, outcome);
+      onCompleteCalled = true;
     }
   };
 
