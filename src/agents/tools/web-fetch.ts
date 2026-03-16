@@ -520,9 +520,13 @@ async function maybeFetchFirecrawlWebFetchPayload(
   return payload;
 }
 
+function resolveWebFetchCacheScope(params: Pick<WebFetchRuntimeParams, "ssrfPolicy">): string {
+  return params.ssrfPolicy?.allowRfc2544BenchmarkRange === true ? "rfc2544-on" : "rfc2544-off";
+}
+
 async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string, unknown>> {
   const cacheKey = normalizeCacheKey(
-    `fetch:${params.url}:${params.extractMode}:${params.maxChars}`,
+    `fetch:${params.url}:${params.extractMode}:${params.maxChars}:${resolveWebFetchCacheScope(params)}`,
   );
   const cached = readCache(FETCH_CACHE, cacheKey);
   if (cached) {

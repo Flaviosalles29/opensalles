@@ -80,4 +80,67 @@ describe("web_fetch RFC2544 config", () => {
       }),
     );
   });
+
+  it("does not reuse cached responses across RFC2544 policy changes", async () => {
+    vi.mocked(fetchWithWebToolsNetworkGuard)
+      .mockResolvedValueOnce({
+        response: new Response("ok", {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }),
+        finalUrl: "https://public.test/cache-scope",
+        release: async () => {},
+      })
+      .mockResolvedValueOnce({
+        response: new Response("ok", {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }),
+        finalUrl: "https://public.test/cache-scope",
+        release: async () => {},
+      });
+
+    const enabledTool = createWebFetchTool({
+      config: {
+        tools: {
+          web: {
+            fetch: {
+              allowRfc2544BenchmarkRange: true,
+              cacheTtlMinutes: 1,
+              firecrawl: { enabled: false },
+            },
+          },
+        },
+      },
+    });
+    const disabledTool = createWebFetchTool({
+      config: {
+        tools: {
+          web: {
+            fetch: {
+              cacheTtlMinutes: 1,
+              firecrawl: { enabled: false },
+            },
+          },
+        },
+      },
+    });
+
+    await enabledTool?.execute?.("call", { url: "https://public.test/cache-scope" });
+    await disabledTool?.execute?.("call", { url: "https://public.test/cache-scope" });
+
+    expect(fetchWithWebToolsNetworkGuard).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetchWithWebToolsNetworkGuard).mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        policy: {
+          allowRfc2544BenchmarkRange: true,
+        },
+      }),
+    );
+    expect(vi.mocked(fetchWithWebToolsNetworkGuard).mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        policy: undefined,
+      }),
+    );
+  });
 });
