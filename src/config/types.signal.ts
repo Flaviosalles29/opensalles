@@ -43,6 +43,10 @@ export type SignalAccountConfig = CommonChannelMessagingConfig & {
    * - "extensive": Agent can react liberally
    */
   reactionLevel?: SignalReactionLevel;
+  /** Extract link preview metadata into UntrustedContext (default: true). */
+  injectLinkPreviews?: boolean;
+  /** Apply Signal text styles (bold/italic/monospace/strikethrough/spoiler) to message text (default: true). */
+  preserveTextStyles?: boolean;
 };
 
 export type SignalConfig = {

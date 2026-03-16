@@ -505,6 +505,13 @@ When Mattermost native commands are enabled:
 - `channels.signal.configWrites`: allow or deny Signal-initiated config writes.
 - Optional `channels.signal.defaultAccount` overrides default account selection when it matches a configured account id.
 
+**Inbound message processing:**
+
+- `injectLinkPreviews` (default: `true`): extract Signal link preview metadata into `UntrustedContext`.
+- `preserveTextStyles` (default: `true`): convert Signal rich text styles into markdown-style formatting in the inbound text.
+
+See [Signal channel docs](/channels/signal#inbound-message-features) for full inbound message feature details (multi-attachments, stickers, polls, quotes, contacts, edits).
+
 ### BlueBubbles
 
 BlueBubbles is the recommended iMessage path (plugin-backed, configured under `channels.bluebubbles`).
