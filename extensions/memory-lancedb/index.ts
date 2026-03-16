@@ -704,7 +704,7 @@ const memoryPlugin = {
                 content: [
                   {
                     type: "text",
-                    text: `Replace partially failed: new memory ${newEntry.id.slice(0, 8)}… created, but old memory ${memoryId.slice(0, 8)}… could not be deleted. Remove it manually with memory_forget.`,
+                    text: `Replace partially failed: new memory ${newEntry.id} created, but old memory ${memoryId} could not be deleted. Remove it manually with memory_forget.`,
                   },
                 ],
                 details: {
@@ -752,7 +752,7 @@ const memoryPlugin = {
               content: [
                 {
                   type: "text",
-                  text: `Replaced memory ${memoryId.slice(0, 8)}… → ${newEntry.id.slice(0, 8)}…\n\nOld: "${oldTextPreview}"\nNew: "${text.slice(0, 80)}"`,
+                  text: `Replaced memory ${memoryId} → ${newEntry.id}\n\nOld: "${oldTextPreview}"\nNew: "${text.slice(0, 80)}"`,
                 },
               ],
               details: {
