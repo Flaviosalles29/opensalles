@@ -4,7 +4,6 @@ import {
   buildAccountScopedDmSecurityPolicy,
   collectAllowlistProviderRestrictSendersWarnings,
 } from "openclaw/plugin-sdk/compat";
-import { buildAgentSessionKey, type RoutePeer } from "openclaw/plugin-sdk/core";
 import {
   buildChannelConfigSchema,
   collectStatusIssuesFromLastError,
@@ -28,6 +27,8 @@ import {
   type ChannelPlugin,
   type ResolvedIMessageAccount,
 } from "openclaw/plugin-sdk/imessage";
+
+import { buildAgentSessionKey, type RoutePeer } from "openclaw/plugin-sdk/routing";
 import { buildPassiveProbedChannelStatusSummary } from "../../shared/channel-status-summary.js";
 import { getIMessageRuntime } from "./runtime.js";
 import { createIMessageSetupWizardProxy, imessageSetupAdapter } from "./setup-core.js";
