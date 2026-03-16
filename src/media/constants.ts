@@ -9,22 +9,29 @@ export function mediaKindFromMime(mime?: string | null): MediaKind | undefined {
   if (!mime) {
     return undefined;
   }
-  if (mime.startsWith("image/")) {
+  // Normalize casing and strip MIME parameters (e.g. "; codecs=opus") so
+  // mixed-case values like "Audio/Ogg" match startsWith checks and
+  // parameterized values like "application/pdf; charset=utf-8" match exact equality.
+  const normalized = mime.split(";")[0].trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.startsWith("image/")) {
     return "image";
   }
-  if (mime.startsWith("audio/")) {
+  if (normalized.startsWith("audio/")) {
     return "audio";
   }
-  if (mime.startsWith("video/")) {
+  if (normalized.startsWith("video/")) {
     return "video";
   }
-  if (mime === "application/pdf") {
+  if (normalized === "application/pdf") {
     return "document";
   }
-  if (mime.startsWith("text/")) {
+  if (normalized.startsWith("text/")) {
     return "document";
   }
-  if (mime.startsWith("application/")) {
+  if (normalized.startsWith("application/")) {
     return "document";
   }
   return undefined;
