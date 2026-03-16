@@ -179,6 +179,102 @@ describe("gateway config methods", () => {
     expect(res.ok).toBe(false);
     expect(res.error?.message ?? "").toContain("raw must be an object");
   });
+
+  type LiveConfig = Record<string, unknown> & {
+    commands?: { restart?: boolean };
+    logging?: { level?: string };
+  };
+
+  async function getLiveConfig(): Promise<{ hash: string; config: LiveConfig }> {
+    const res = await rpcReq<{
+      raw?: unknown;
+      hash?: string;
+      config?: LiveConfig;
+    }>(requireWs(), "config.get", {});
+    expect(res.ok).toBe(true);
+    expect(typeof res.payload?.hash).toBe("string");
+    expect(res.payload?.config).toBeTruthy();
+    return {
+      hash: res.payload?.hash as string,
+      config: res.payload?.config as LiveConfig,
+    };
+  }
+
+  async function writeLiveConfig(config: LiveConfig, baseHash: string): Promise<void> {
+    const res = await rpcReq<{
+      ok?: boolean;
+      path?: string;
+      config?: LiveConfig;
+    }>(requireWs(), "config.set", {
+      raw: JSON.stringify(config, null, 2),
+      baseHash,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.payload?.config).toBeTruthy();
+  }
+
+  function pickAlternateLogLevel(config: LiveConfig): string {
+    return config.logging?.level === "debug" ? "info" : "debug";
+  }
+
+  it("skips automatic restart for config.patch when commands.restart is disabled", async () => {
+    const original = await getLiveConfig();
+    try {
+      const nextLogLevel = pickAlternateLogLevel(original.config);
+      const restartDisabled = structuredClone(original.config);
+      restartDisabled.commands = { ...(restartDisabled.commands ?? {}), restart: false };
+      await writeLiveConfig(restartDisabled, original.hash);
+
+      const current = await getLiveConfig();
+      const res = await rpcReq<{
+        ok?: boolean;
+        config?: LiveConfig;
+        restart?: unknown;
+        sentinel?: unknown;
+      }>(requireWs(), "config.patch", {
+        raw: JSON.stringify({ logging: { level: nextLogLevel } }, null, 2),
+        baseHash: current.hash,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.payload?.restart).toBeNull();
+      expect(res.payload?.sentinel).toBeNull();
+      expect(res.payload?.config?.commands?.restart).toBe(false);
+      expect(res.payload?.config?.logging?.level).toBe(nextLogLevel);
+    } finally {
+      const latest = await getLiveConfig();
+      await writeLiveConfig(original.config, latest.hash);
+    }
+  });
+
+  it("skips automatic restart for config.apply when commands.restart is disabled", async () => {
+    const original = await getLiveConfig();
+    try {
+      const nextLogLevel = pickAlternateLogLevel(original.config);
+      const updated = structuredClone(original.config);
+      updated.commands = { ...(updated.commands ?? {}), restart: false };
+      updated.logging = { ...(updated.logging ?? {}), level: nextLogLevel };
+
+      const res = await rpcReq<{
+        ok?: boolean;
+        config?: LiveConfig;
+        restart?: unknown;
+        sentinel?: unknown;
+      }>(requireWs(), "config.apply", {
+        raw: JSON.stringify(updated, null, 2),
+        baseHash: original.hash,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.payload?.restart).toBeNull();
+      expect(res.payload?.sentinel).toBeNull();
+      expect(res.payload?.config?.commands?.restart).toBe(false);
+      expect(res.payload?.config?.logging?.level).toBe(nextLogLevel);
+    } finally {
+      const latest = await getLiveConfig();
+      await writeLiveConfig(original.config, latest.hash);
+    }
+  });
 });
 
 describe("gateway server sessions", () => {
