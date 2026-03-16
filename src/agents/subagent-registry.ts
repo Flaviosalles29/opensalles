@@ -690,6 +690,9 @@ function resumeSubagentRun(runId: string) {
         triggerCleanup: true,
       });
     },
+    onResumeCleanup: (failedRunId) => {
+      resumedRuns.delete(failedRunId);
+    },
   });
   if (handled) {
     resumedRuns.add(runId);

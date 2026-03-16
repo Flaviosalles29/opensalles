@@ -471,12 +471,20 @@ describe("resolveSubagentRunResumability", () => {
   it("returns resumable-replay when transcript has assistant turns", () => {
     const sessionId = "sess-replay";
     const transcriptPath = path.join(tmpDir, `${sessionId}.jsonl`);
+
+    // Create the run BEFORE writing the assistant turn so the turn's timestamp
+    // is guaranteed to be >= the run's createdAt (avoids the stale-transcript
+    // boundary check incorrectly classifying it as resumable-fresh).
+    const entry = makeRun({
+      childSessionKey: "agent:main:subagent:replay-run",
+      createdAt: Date.now() - 5_000,
+    });
+
     fs.writeFileSync(
       transcriptPath,
       [sessionHeaderLine(sessionId), userMessageLine(), assistantMessageLine()].join("\n"),
     );
 
-    const entry = makeRun({ childSessionKey: "agent:main:subagent:replay-run" });
     mockLoadSessionStore.mockReturnValue({
       [entry.childSessionKey]: { sessionId, updatedAt: Date.now() },
     });
@@ -947,12 +955,19 @@ describe("routeResumedRun", () => {
     const mockSessionsDir = "/tmp/octest/agents/main/sessions";
     const mockTranscriptPath = path.join(mockSessionsDir, `${sessionId}.jsonl`);
     fs.mkdirSync(mockSessionsDir, { recursive: true });
+
+    // Create the run BEFORE writing the transcript so the assistant turn's
+    // timestamp is guaranteed to post-date createdAt (avoids the stale-transcript
+    // boundary check misclassifying the run as resumable-fresh).
+    const entry = makeRun({
+      childSessionKey: "agent:main:subagent:replay-run",
+      createdAt: Date.now() - 5_000,
+    });
+
     fs.writeFileSync(
       mockTranscriptPath,
       [sessionHeaderLine(sessionId), userMessageLine(), assistantMessageLine()].join("\n"),
     );
-
-    const entry = makeRun({ childSessionKey: "agent:main:subagent:replay-run" });
     mockLoadSessionStore.mockReturnValue({
       [entry.childSessionKey]: { sessionId, updatedAt: Date.now() },
     });
@@ -1041,7 +1056,7 @@ describe("routeResumedRun", () => {
 // ---------------------------------------------------------------------------
 
 describe("redispatchSubagentRunAfterRestart — metadata forwarding", () => {
-  it("forwards requesterOrigin context, label, workspaceDir, and extraSystemPrompt to the agent dispatch (comments 1 + 3)", async () => {
+  it("forwards requesterOrigin context, label, and extraSystemPrompt to the agent dispatch (not spawnedBy/workspaceDir which are session-store-only)", async () => {
     // Capture callGateway calls without disturbing other mocks.
     const capturedCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     mockCallGateway.mockImplementationOnce(
@@ -1088,11 +1103,16 @@ describe("redispatchSubagentRunAfterRestart — metadata forwarding", () => {
       accountId: "acc-123",
       to: "user-456",
       threadId: "thread-789",
-      workspaceDir: "/workspace/project",
-      spawnedBy: entry.requesterSessionKey,
-      // extraSystemPrompt must be restored verbatim, not rebuilt by buildSubagentSystemPrompt.
+      // Note: spawnedBy and workspaceDir are intentionally NOT forwarded via
+      // callGateway params — AgentParamsSchema has additionalProperties: false
+      // and does not define these fields.  The original spawn path applies
+      // them via patchChildSession; the session-store entry already carries
+      // the correct values.
       extraSystemPrompt: "custom-prompt-with-attachment-suffix",
     });
+    // Verify spawnedBy and workspaceDir are NOT in the callGateway params.
+    expect(agentCall?.params).not.toHaveProperty("spawnedBy");
+    expect(agentCall?.params).not.toHaveProperty("workspaceDir");
 
     expect(onComplete).toHaveBeenCalledWith(entry.runId, expect.any(Number), { status: "ok" });
   });

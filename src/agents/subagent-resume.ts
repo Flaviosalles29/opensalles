@@ -365,10 +365,11 @@ function findEntryByKey(
  * `birthtimeMs === mtimeMs`), `mtimeMs` drifts as the transcript is appended,
  * so a long-running subagent can exceed the tolerance even when the file is the
  * correct match.  To handle this, when `birthtimeMs === mtimeMs` we include
- * **all** `.jsonl` files regardless of timestamp and then narrow via the
- * session header (performed by the caller after this scan).  When real
- * `birthtimeMs` is available, the strict tolerance applies and the
- * one-candidate constraint prevents false matches.
+ * any `.jsonl` file whose session ID (from the transcript header) is **not**
+ * already claimed by an existing session-store entry.  This avoids the pitfall
+ * of substring-matching independent UUIDs (session IDs vs session keys are
+ * generated separately).  When real `birthtimeMs` is available, the strict
+ * tolerance applies and the one-candidate constraint prevents false matches.
  *
  * Returns the absolute path of the candidate if exactly one candidate is found,
  * otherwise `null`.
@@ -377,12 +378,30 @@ function scanSessionsDirForTranscriptCandidate(
   sessionsDir: string,
   targetCreatedAtMs: number,
   toleranceMs: number,
-  opts?: { childSessionKey?: string },
+  opts?: {
+    childSessionKey?: string;
+    /** Session store (already loaded) — used on Linux to filter out files that
+     *  are already claimed by an existing session-store key. */
+    sessionStore?: Record<string, SessionEntry>;
+  },
 ): string | null {
   try {
     const files = fs.readdirSync(sessionsDir);
     const candidates: string[] = [];
     let birthtimeUnavailable = false;
+
+    // On Linux we need to know which sessionIds are already claimed by
+    // existing store entries so we can exclude them.  Build a Set once.
+    let claimedSessionIds: Set<string> | undefined;
+    if (opts?.sessionStore) {
+      claimedSessionIds = new Set<string>();
+      for (const storeEntry of Object.values(opts.sessionStore)) {
+        if (typeof storeEntry.sessionId === "string" && storeEntry.sessionId.trim()) {
+          claimedSessionIds.add(storeEntry.sessionId.trim().toLowerCase());
+        }
+      }
+    }
+
     for (const file of files) {
       if (!file.endsWith(".jsonl")) {
         continue;
@@ -399,26 +418,24 @@ function scanSessionsDirForTranscriptCandidate(
           }
         } else {
           // Linux fallback: mtimeMs drifts for long-running transcripts so
-          // timestamp matching is unreliable.  Instead, check the session
-          // header inside the transcript to find the correct file.
+          // timestamp matching is unreliable.  Session IDs and session keys
+          // are generated independently (the key is `agent:<id>:subagent:<uuid>`
+          // while the session ID is a separate `randomUUID()`), so substring
+          // matching between them would never match.
+          //
+          // Instead, include any `.jsonl` file whose session ID is not already
+          // claimed by an existing session-store entry.  The one-candidate
+          // constraint (below) then selects the file only when the match is
+          // unambiguous.
           birthtimeUnavailable = true;
-          if (opts?.childSessionKey) {
-            const headerSessionId = readTranscriptSessionId(fullPath);
-            // The session header's id must be part of the childSessionKey
-            // (typically the UUID suffix).  This is a loose but reliable match.
-            if (
-              headerSessionId &&
-              opts.childSessionKey.toLowerCase().includes(headerSessionId.toLowerCase())
-            ) {
-              candidates.push(fullPath);
+          const headerSessionId = readTranscriptSessionId(fullPath);
+          if (headerSessionId) {
+            const normalizedHeaderId = headerSessionId.toLowerCase();
+            // Skip files already claimed by an existing store entry.
+            if (claimedSessionIds && claimedSessionIds.has(normalizedHeaderId)) {
+              continue;
             }
-          } else {
-            // No childSessionKey to match against — fall back to mtime with
-            // a relaxed tolerance (1 hour instead of 5 minutes) as a best-effort.
-            const timeDiffMs = Math.abs(stat.mtimeMs - targetCreatedAtMs);
-            if (timeDiffMs <= 60 * 60_000) {
-              candidates.push(fullPath);
-            }
+            candidates.push(fullPath);
           }
         }
       } catch {
@@ -498,7 +515,7 @@ export async function rehydrateSessionStoreEntries(
         sessionsDir,
         targetCreatedAtMs,
         TOLERANCE_MS,
-        { childSessionKey },
+        { childSessionKey, sessionStore: store },
       );
       if (!transcriptPath) {
         log.debug("rehydrate: no transcript candidate found", { childSessionKey });
@@ -701,6 +718,7 @@ export async function recoverCompletedSubagentRunFromTranscript(
   runId: string,
   entry: SubagentRunRecord,
   onComplete: (runId: string, endedAt: number) => Promise<void>,
+  onResumeCleanup?: (runId: string) => void,
 ): Promise<void> {
   try {
     const endedAt = Date.now();
@@ -713,6 +731,13 @@ export async function recoverCompletedSubagentRunFromTranscript(
     defaultRuntime.log(
       `[warn] subagent-resume: replay recovery failed run=${runId}: ${String(err)}`,
     );
+    // Clear the resume lock so this run can be retried on the next resume
+    // cycle instead of being permanently stuck in the resumed set.
+    try {
+      onResumeCleanup?.(runId);
+    } catch {
+      // Best-effort cleanup — don't mask the original error.
+    }
   }
 }
 
@@ -853,11 +878,12 @@ export async function redispatchSubagentRunAfterRestart(
             entry.requesterOrigin?.threadId != null
               ? String(entry.requesterOrigin.threadId)
               : undefined,
-          // Preserve original run's depth/parent context and workspace so the
-          // session tree and any relative-path file operations remain consistent
-          // after restart (fix for comment 1: include workspaceDir from entry).
-          spawnedBy: entry.requesterSessionKey,
-          workspaceDir: entry.workspaceDir,
+          // Note: spawnedBy and workspaceDir are intentionally NOT passed here.
+          // AgentParamsSchema has additionalProperties: false and does not define
+          // these fields.  The original spawn path (subagent-spawn.ts) applies
+          // them via a separate session-store patch (patchChildSession), not via
+          // callGateway params.  The session-store entry (real or rehydrated)
+          // already carries the correct spawnedBy / spawnedWorkspaceDir values.
         },
         timeoutMs: 10_000,
       });
@@ -945,6 +971,9 @@ export function routeResumedRun(params: {
     endedAt: number,
     outcome: { status: string },
   ) => Promise<void>;
+  /** Called when an async recovery path fails so the caller can clear the
+   *  resume lock (`resumedRuns`) and allow the run to be retried. */
+  onResumeCleanup?: (runId: string) => void;
 }): boolean {
   const resumability = resolveSubagentRunResumability(params.entry);
 
@@ -967,6 +996,7 @@ export function routeResumedRun(params: {
       params.runId,
       params.entry,
       params.onCompleteReplay,
+      params.onResumeCleanup,
     );
     return true;
   }
