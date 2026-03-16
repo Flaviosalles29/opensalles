@@ -40,7 +40,15 @@ function installTmpDirHarness(params: { prefix: string }) {
 }
 
 describe("memory plugin e2e", () => {
-  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
+  const { getTmpDir, getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
+
+  // Guard against mock leaks between tests: reset module registry before each
+  // test so that vi.doMock registrations from a prior test never leak into the
+  // next.  Without this, the module-level lancedbImportPromise singleton can
+  // cache a stale (mocked or real) import across test boundaries.
+  beforeEach(() => {
+    vi.resetModules();
+  });
 
   async function parseConfig(overrides: Record<string, unknown> = {}) {
     const { default: memoryPlugin } = await import("./index.js");
@@ -67,7 +75,14 @@ describe("memory plugin e2e", () => {
   });
 
   test("config schema parses valid config", async () => {
-    const config = await parseConfig({
+    const { default: memoryPlugin } = await import("./index.js");
+
+    const config = memoryPlugin.configSchema?.parse?.({
+      embedding: {
+        apiKey: OPENAI_API_KEY,
+        model: "text-embedding-3-small",
+      },
+      dbPath: getDbPath(),
       autoCapture: true,
       autoRecall: true,
     });
@@ -120,7 +135,14 @@ describe("memory plugin e2e", () => {
   });
 
   test("config schema accepts captureMaxChars override", async () => {
-    const config = await parseConfig({
+    const { default: memoryPlugin } = await import("./index.js");
+
+    const config = memoryPlugin.configSchema?.parse?.({
+      embedding: {
+        apiKey: OPENAI_API_KEY,
+        model: "text-embedding-3-small",
+      },
+      dbPath: getDbPath(),
       captureMaxChars: 1800,
     });
 
@@ -128,7 +150,15 @@ describe("memory plugin e2e", () => {
   });
 
   test("config schema keeps autoCapture disabled by default", async () => {
-    const config = await parseConfig();
+    const { default: memoryPlugin } = await import("./index.js");
+
+    const config = memoryPlugin.configSchema?.parse?.({
+      embedding: {
+        apiKey: OPENAI_API_KEY,
+        model: "text-embedding-3-small",
+      },
+      dbPath: getDbPath(),
+    });
 
     expect(config?.autoCapture).toBe(false);
     expect(config?.autoRecall).toBe(true);
@@ -213,6 +243,7 @@ describe("memory plugin e2e", () => {
     } finally {
       vi.doUnmock("openai");
       vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
       vi.resetModules();
     }
   });
@@ -273,6 +304,710 @@ describe("memory plugin e2e", () => {
     expect(detectCategory("My email is test@example.com")).toBe("entity");
     expect(detectCategory("The server is running on port 3000")).toBe("fact");
     expect(detectCategory("Random note")).toBe("other");
+  });
+
+  // ============================================================================
+  // memory_refresh tests
+  // ============================================================================
+
+  function buildMockApi(overrides: {
+    dbPath: string;
+    embeddingsCreate: ReturnType<typeof vi.fn>;
+    vectorSearch: ReturnType<typeof vi.fn>;
+    queryWhere: ReturnType<typeof vi.fn>;
+    tableAdd: ReturnType<typeof vi.fn>;
+    tableDelete: ReturnType<typeof vi.fn>;
+    // oxlint-disable-next-line typescript/no-explicit-any
+    registeredTools: any[];
+  }) {
+    return {
+      id: "memory-lancedb",
+      name: "Memory (LanceDB)",
+      source: "test",
+      config: {},
+      pluginConfig: {
+        embedding: {
+          apiKey: OPENAI_API_KEY,
+          model: "text-embedding-3-small",
+        },
+        dbPath: overrides.dbPath,
+        autoCapture: false,
+        autoRecall: false,
+      },
+      runtime: {},
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+      // oxlint-disable-next-line typescript/no-explicit-any
+      registerTool: (tool: any, opts: any) => {
+        overrides.registeredTools.push({ tool, opts });
+      },
+      registerCli: vi.fn(),
+      registerService: vi.fn(),
+      on: vi.fn(),
+      resolvePath: (p: string) => p,
+    };
+  }
+
+  test("memory_refresh search-only mode returns matches without writing to DB", async () => {
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }));
+    const tableAdd = vi.fn(async () => undefined);
+    const tableDelete = vi.fn(async () => undefined);
+
+    const mockSearchResults = [
+      {
+        id: "aaaaaaaa-0000-0000-0000-000000000001",
+        text: "Match one",
+        vector: [0.1, 0.2, 0.3],
+        importance: 0.8,
+        category: "fact",
+        createdAt: 1000,
+        _distance: 0.05,
+      },
+      {
+        id: "aaaaaaaa-0000-0000-0000-000000000002",
+        text: "Match two",
+        vector: [0.1, 0.2, 0.3],
+        importance: 0.7,
+        category: "preference",
+        createdAt: 1001,
+        _distance: 0.1,
+      },
+      {
+        id: "aaaaaaaa-0000-0000-0000-000000000003",
+        text: "Match three",
+        vector: [0.1, 0.2, 0.3],
+        importance: 0.6,
+        category: "other",
+        createdAt: 1002,
+        _distance: 0.2,
+      },
+    ];
+
+    const toArray = vi.fn(async () => mockSearchResults);
+    const limit = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({ limit }));
+    const queryWhere = vi.fn();
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 3),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      // Call without memoryId → search-only mode
+      const result = await refreshTool.execute("test-refresh-search", {
+        text: "user prefers dark theme",
+      });
+
+      expect(result.details.operation).toBe("search_only");
+      expect(result.details.matches).toHaveLength(3);
+      expect(result.details.matches[0]).toHaveProperty("similarity");
+      expect(result.details.matches[0].similarity).toBeGreaterThan(0);
+
+      // Verify nothing was written to the DB
+      expect(tableAdd).not.toHaveBeenCalled();
+      expect(tableDelete).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh atomic replace: old entry gone, new entry present, audit log written", async () => {
+    const existingId = "bbbbbbbb-0000-0000-0000-000000000001";
+    const existingEntry = {
+      id: existingId,
+      text: "Old memory text that will be replaced",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.7,
+      category: "fact",
+      createdAt: 1000,
+    };
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.15, 0.25, 0.35] }],
+    }));
+    const tableAdd = vi.fn(async () => undefined);
+    const tableDelete = vi.fn(async () => undefined);
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const searchToArray = vi.fn(async () => []);
+    const searchLimit = vi.fn(() => ({ toArray: searchToArray }));
+    const vectorSearch = vi.fn(() => ({ limit: searchLimit }));
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    let auditLogPath: string | null = null;
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+
+      // Use tmpDir for audit log by temporarily pointing homedir there
+      const originalHome = process.env.HOME;
+      process.env.HOME = getTmpDir();
+
+      // oxlint-disable-next-line typescript/no-explicit-any
+      let result: any;
+      try {
+        const mockApi = buildMockApi({
+          dbPath: getDbPath(),
+          embeddingsCreate,
+          vectorSearch,
+          queryWhere,
+          tableAdd,
+          tableDelete,
+          registeredTools,
+        });
+        // oxlint-disable-next-line typescript/no-explicit-any
+        memoryPlugin.register(mockApi as any);
+
+        const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+        expect(refreshTool).toBeDefined();
+
+        result = await refreshTool.execute("test-refresh-replace", {
+          text: "Updated memory text with new information",
+          category: "fact",
+          importance: 0.9,
+          memoryId: existingId,
+        });
+      } finally {
+        // Restore HOME in finally so it is always cleaned up even if execute()
+        // or an expect() inside the block throws (Fix 5).
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+      }
+
+      expect(result.details.operation).toBe("replaced");
+      expect(result.details.old_id).toBe(existingId);
+      expect(result.details.new_id).toBeDefined();
+      expect(result.details.old_text_preview).toContain("Old memory");
+
+      // Verify delete was called for old entry
+      expect(tableDelete).toHaveBeenCalledWith(`id = '${existingId}'`);
+
+      // Verify add was called for new entry
+      expect(tableAdd).toHaveBeenCalledTimes(1);
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const addCall = (tableAdd.mock.calls as any[][][])[0][0][0];
+      expect(addCall.text).toBe("Updated memory text with new information");
+      expect(addCall.importance).toBe(0.9);
+
+      // Check audit log was written
+      auditLogPath = `${getTmpDir()}/.openclaw/memory/refresh-audit.jsonl`;
+      const auditContent = await import("node:fs/promises").then((fs) =>
+        fs.readFile(auditLogPath!, "utf8").catch(() => null),
+      );
+      expect(auditContent).not.toBeNull();
+      const auditLine = JSON.parse(auditContent!.trim());
+      expect(auditLine.operation).toBe("replaced");
+      expect(auditLine.old_id).toBe(existingId);
+      expect(auditLine.new_id).toBeDefined();
+      expect(auditLine.old_text).toContain("Old memory");
+      expect(auditLine.new_text).toContain("Updated memory");
+      expect(auditLine.ts).toBeGreaterThan(0);
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh replace with non-existent ID returns error without creating entry", async () => {
+    const nonExistentId = "cccccccc-0000-0000-0000-000000000001";
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }));
+    const tableAdd = vi.fn(async () => undefined);
+    const tableDelete = vi.fn(async () => undefined);
+    const toArray = vi.fn(async () => []); // empty → not found
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 0),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      const result = await refreshTool.execute("test-refresh-notfound", {
+        text: "This text won't be stored",
+        memoryId: nonExistentId,
+      });
+
+      expect(result.details.operation).toBe("error");
+      expect(result.details.error).toBe("not_found");
+      expect(result.details.memoryId).toBe(nonExistentId);
+
+      // Verify nothing was written or deleted
+      expect(tableAdd).not.toHaveBeenCalled();
+      expect(tableDelete).not.toHaveBeenCalled();
+
+      // Verify the embedding API was not called — a stale/invalid memoryId
+      // should short-circuit before incurring an embedding round-trip (Fix 3).
+      expect(embeddingsCreate).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh insert failure: original entry preserved, no data loss", async () => {
+    const existingId = "dddddddd-0000-0000-0000-000000000001";
+    const existingEntry = {
+      id: existingId,
+      text: "Original memory that must be preserved",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.8,
+      category: "fact",
+      createdAt: 1000,
+    };
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.15, 0.25, 0.35] }],
+    }));
+    const tableDelete = vi.fn(async () => undefined);
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    // Insert fails — with insert-first-then-delete, original stays intact
+    const tableAdd = vi.fn(async () => {
+      throw new Error("Simulated insert failure");
+    });
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      const result = await refreshTool.execute("test-refresh-insert-fail", {
+        text: "New text that will fail to insert",
+        memoryId: existingId,
+      });
+
+      expect(result.details.operation).toBe("error");
+      expect(result.details.error).toBe("insert_failed");
+      expect(result.details.success).toBe(false);
+      // With insert-first-then-delete, the original is never deleted when
+      // insert fails — so original_id is returned for clarity.
+      expect(result.details.original_id).toBe(existingId);
+
+      // Delete should NOT have been called — insert failed first
+      expect(tableDelete).not.toHaveBeenCalled();
+
+      // Add was called once (the failed insert) — no rollback needed
+      expect(tableAdd).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh delete failure after insert: surfaces error with both IDs", async () => {
+    const existingId = "dddddddd-0000-0000-0000-000000000002";
+    const existingEntry = {
+      id: existingId,
+      text: "Memory whose delete will fail",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.8,
+      category: "fact",
+      createdAt: 1000,
+    };
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.15, 0.25, 0.35] }],
+    }));
+    const tableDelete = vi.fn(async () => {
+      throw new Error("Simulated delete failure");
+    });
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    // Insert succeeds, delete will fail
+    const tableAdd = vi.fn(async () => undefined);
+
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      const result = await refreshTool.execute("test-delete-fail", {
+        text: "New text that inserts fine but old entry won't delete",
+        memoryId: existingId,
+      });
+
+      // Must surface as an error, not a success
+      expect(result.details.operation).toBe("error");
+      expect(result.details.error).toBe("delete_failed");
+      expect(result.details.success).toBe(false);
+      // Both IDs exposed so the caller knows the old entry still exists
+      expect(result.details.old_id).toBe(existingId);
+      expect(result.details.new_id).toBeDefined();
+      expect(result.details.deleteError).toContain("Simulated delete failure");
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh replace inherits category and importance from existing when not provided", async () => {
+    const existingId = "eeeeeeee-0000-0000-0000-000000000001";
+    const existingEntry = {
+      id: existingId,
+      text: "Old memory text",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.9, // non-default, to verify it is inherited
+      category: "decision" as const, // non-default, to verify it is inherited
+      createdAt: 1000,
+    };
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.15, 0.25, 0.35] }],
+    }));
+    const tableAdd = vi.fn(async () => undefined);
+    const tableDelete = vi.fn(async () => undefined);
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      // Call with only text — omit category and importance entirely (Fix 2).
+      const result = await refreshTool.execute("test-refresh-inherit", {
+        text: "Updated text only — no category or importance supplied",
+        memoryId: existingId,
+      });
+
+      expect(result.details.operation).toBe("replaced");
+
+      // The new entry must carry over the original category and importance.
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const addCall = (tableAdd.mock.calls as any[][][])[0][0][0];
+      expect(addCall.text).toBe("Updated text only — no category or importance supplied");
+      expect(addCall.category).toBe("decision"); // inherited from existingEntry
+      expect(addCall.importance).toBe(0.9); // inherited from existingEntry
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
+  });
+
+  test("memory_refresh concurrent replace calls on same ID serialize: operations do not interleave", async () => {
+    const existingId = "ffffffff-0000-0000-0000-000000000001";
+    const existingEntry = {
+      id: existingId,
+      text: "Original text",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.7,
+      category: "fact",
+      createdAt: 1000,
+    };
+
+    // Track the order of DB operations across both concurrent calls.
+    const callLog: string[] = [];
+
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }));
+
+    // Static mock: getById always returns the same entry regardless of prior
+    // deletes — this lets both calls succeed so we can assert the op order.
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    // tableAdd introduces a small async gap so that without the mutex the
+    // two calls' add operations would both complete before either delete fires,
+    // producing the interleaved log ["add","add","delete","delete"].
+    // With the mutex the expected log is ["add","delete","add","delete"].
+    const tableDelete = vi.fn(async () => {
+      callLog.push("delete");
+    });
+    const tableAdd = vi.fn(async () => {
+      callLog.push("add");
+      await new Promise<void>((r) => setTimeout(r, 5));
+    });
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      // Fire two replace calls simultaneously on the same memoryId.
+      const [result1, result2] = await Promise.all([
+        refreshTool.execute("concurrent-call-1", { text: "Update A", memoryId: existingId }),
+        refreshTool.execute("concurrent-call-2", { text: "Update B", memoryId: existingId }),
+      ]);
+
+      // Both calls must complete without throwing (promises resolve, not reject).
+      expect(result1).toBeDefined();
+      expect(result2).toBeDefined();
+
+      // Both succeed because the static mock always returns the entry.
+      expect(result1.details.operation).toBe("replaced");
+      expect(result2.details.operation).toBe("replaced");
+
+      // Serialized pattern: add, delete, add, delete (insert-first-then-delete).
+      // Interleaved (racy) pattern would be: add, add, delete, delete.
+      // The mutex guarantees the former.
+      expect(callLog).toEqual(["add", "delete", "add", "delete"]);
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.clearAllMocks();
+      vi.resetModules();
+    }
   });
 });
 
@@ -342,11 +1077,12 @@ describeLive("memory plugin live tests", () => {
     // oxlint-disable-next-line typescript/no-explicit-any
     memoryPlugin.register(mockApi as any);
 
-    // Check registration
-    expect(registeredTools.length).toBe(3);
+    // Check registration — 4 tools: recall, store, forget, refresh
+    expect(registeredTools.length).toBe(4);
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_recall");
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_store");
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_forget");
+    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_refresh");
     expect(registeredClis.length).toBe(1);
     expect(registeredServices.length).toBe(1);
 
