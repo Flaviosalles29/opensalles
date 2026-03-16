@@ -1,14 +1,14 @@
 import { Separator, TextDisplay } from "@buape/carbon";
-import { createScopedChannelConfigBase } from "openclaw/plugin-sdk/compat";
 import {
   buildAccountScopedAllowlistConfigEditor,
   buildAccountScopedDmSecurityPolicy,
   collectOpenProviderGroupPolicyWarnings,
   collectOpenGroupPolicyConfiguredRouteWarnings,
+  createScopedChannelConfigBase,
   createScopedAccountConfigAccessors,
   formatAllowFromLowercase,
+  resolveOutboundSendDep,
 } from "openclaw/plugin-sdk/compat";
-import { resolveOutboundSendDep } from "openclaw/plugin-sdk/compat";
 import {
   buildComputedAccountStatusSnapshot,
   buildChannelConfigSchema,
