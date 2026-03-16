@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { ChatStreamer } from "@slack/web-api/dist/chat-stream.js";
+import { describe, expect, it, vi } from "vitest";
 import { stopSlackStream, type SlackStreamSession } from "./streaming.js";
 
 function createSession() {

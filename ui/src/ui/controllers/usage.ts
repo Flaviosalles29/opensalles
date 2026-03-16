@@ -325,8 +325,7 @@ export async function loadUsage(
   const loadProviderQuota = async () => {
     const quotaMetaForState = usageQuotaMeta.get(state);
     const shouldRefreshProviderQuota = overrides?.refreshProviderQuota === true;
-    const shouldProbeCompatibility =
-      shouldRefreshProviderQuota || shouldRequestUsageStatus(state);
+    const shouldProbeCompatibility = shouldRefreshProviderQuota || shouldRequestUsageStatus(state);
     const shouldLoadQuota =
       shouldRefreshProviderQuota ||
       !quotaMetaForState ||
@@ -334,8 +333,7 @@ export async function loadUsage(
       quotaMetaForState.status === "error" ||
       (quotaMetaForState.status === "unsupported" && shouldProbeCompatibility);
     if (!shouldLoadQuota) {
-      state.usageProviderSummaryError =
-        quotaMetaForState?.status === "error" ? state.usageProviderSummaryError : null;
+      state.usageProviderSummaryError = null;
       return;
     }
     state.usageProviderSummaryError = null;

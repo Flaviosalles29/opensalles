@@ -170,6 +170,26 @@ describe("fetchClaudeUsage", () => {
     expect(result.windows).toEqual([{ label: "Opus", usedPercent: 44 }]);
   });
 
+  it("replaces sessionKey literally when it contains dollar-sign sequences", async () => {
+    vi.stubEnv("CLAUDE_AI_SESSION_KEY", "sk-ant-$1$&");
+
+    const mockFetch = createScopeFallbackFetch(async (url, init) => {
+      const headers = (init?.headers as Record<string, string> | undefined) ?? {};
+      expect(headers.Cookie).toContain("sessionKey=sk-ant-$1$&");
+      if (url.endsWith("/api/organizations")) {
+        return makeResponse(200, [{ uuid: "org-dollar" }]);
+      }
+      if (url.endsWith("/api/organizations/org-dollar/usage")) {
+        return makeResponse(200, { five_hour: { utilization: 11 } });
+      }
+      return makeResponse(404, "not found");
+    });
+
+    const result = await fetchClaudeUsage("token", 5000, mockFetch);
+    expect(result.error).toBeUndefined();
+    expect(result.windows).toEqual([{ label: "5h", usedPercent: 11, resetAt: undefined }]);
+  });
+
   it("strips Cookie: prefix from CLAUDE_WEB_COOKIE", async () => {
     vi.stubEnv("CLAUDE_WEB_COOKIE", "Cookie: sessionKey=sk-ant-prefixed");
 

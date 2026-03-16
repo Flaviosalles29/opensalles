@@ -36,6 +36,6 @@ export type ProviderUsageSnapshot = {
 };
 
 export type ProviderUsageSummary = {
-  updatedAt: number;
+  updatedAt?: number;
   providers: ProviderUsageSnapshot[];
 };

@@ -52,7 +52,10 @@ function mergeSessionKeyIntoCookieJar(cookieJar: string | undefined, sessionKey:
     return `sessionKey=${sessionKey}`;
   }
   if (/(?:^|;\s*)sessionKey=/.test(cookieJar)) {
-    return cookieJar.replace(/((?:^|;\s*)sessionKey=)[^;\s]*/i, `$1${sessionKey}`);
+    return cookieJar.replace(
+      /((?:^|;\s*)sessionKey=)[^;\s]*/i,
+      (_match, prefix: string) => `${prefix}${sessionKey}`,
+    );
   }
   return `${cookieJar}; sessionKey=${sessionKey}`;
 }
