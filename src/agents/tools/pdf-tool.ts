@@ -1,4 +1,4 @@
-import { type Api, type Context, complete, type Model } from "@mariozechner/pi-ai";
+import { type Api, type Context, complete, type Model } from "@earendil-works/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { extractPdfContent, type PdfExtractedContent } from "../../media/pdf-extract.js";

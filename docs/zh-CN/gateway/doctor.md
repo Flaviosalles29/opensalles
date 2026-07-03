@@ -129,7 +129,7 @@ Gateway 网关在检测到遗留配置格式时也会在启动时自动运行 do
 
 ### 2b）OpenCode Zen 提供商覆盖
 
-如果你手动添加了 `models.providers.opencode`（或 `opencode-zen`），它会覆盖 `@mariozechner/pi-ai` 中内置的 OpenCode Zen 目录。这可能会强制将每个模型放到单个 API 上或将成本归零。Doctor 会发出警告，以便你可以移除覆盖并恢复每模型 API 路由 + 成本。
+如果你手动添加了 `models.providers.opencode`（或 `opencode-zen`），它会覆盖 `@earendil-works/pi-ai` 中内置的 OpenCode Zen 目录。这可能会强制将每个模型放到单个 API 上或将成本归零。Doctor 会发出警告，以便你可以移除覆盖并恢复每模型 API 路由 + 成本。
 
 ### 3）遗留状态迁移（磁盘布局）
 

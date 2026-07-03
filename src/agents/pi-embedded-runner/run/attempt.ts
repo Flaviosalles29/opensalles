@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import os from "node:os";
-import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
-import { streamSimple } from "@mariozechner/pi-ai";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import { streamSimple } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
@@ -940,7 +940,7 @@ export async function runEmbeddedAttempt(
           activeSession.agent.streamFn = streamSimple;
         }
       } else {
-        // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
+        // Force a stable streamFn reference so vitest can reliably mock @earendil-works/pi-ai.
         activeSession.agent.streamFn = streamSimple;
       }
 

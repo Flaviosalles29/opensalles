@@ -130,7 +130,7 @@ OpenClaw 通过 `src/config/sessions.ts` 解析这些位置。
 
 ## 记录结构（`*.jsonl`）
 
-记录由 `@mariozechner/pi-coding-agent` 的 `SessionManager` 管理。
+记录由 `@earendil-works/pi-coding-agent` 的 `SessionManager` 管理。
 
 文件是 JSONL 格式：
 

@@ -183,8 +183,8 @@ vi.mock("./openai-ws-connection.js", async (importOriginal) => {
 // Track if streamSimple (HTTP fallback) was called
 const streamSimpleCalls: Array<{ model: unknown; context: unknown }> = [];
 
-vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@mariozechner/pi-ai")>();
+vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@earendil-works/pi-ai")>();
 
   const mockStreamSimple = vi.fn((model: unknown, context: unknown) => {
     streamSimpleCalls.push({ model, context });

@@ -77,7 +77,7 @@ openclaw models status
 
 ## OAuth 交换（登录工作原理）
 
-OpenClaw 的交互式登录流程在 `@mariozechner/pi-ai` 中实现，并集成到向导/命令中。
+OpenClaw 的交互式登录流程在 `@earendil-works/pi-ai` 中实现，并集成到向导/命令中。
 
 ### Anthropic（Claude Pro/Max）setup-token
 

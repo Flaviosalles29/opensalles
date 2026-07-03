@@ -12,8 +12,8 @@ import {
 } from "./pdf-tool.helpers.js";
 import { createPdfTool, resolvePdfModelConfigForTool } from "./pdf-tool.js";
 
-vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@mariozechner/pi-ai")>();
+vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-ai")>();
   return {
     ...actual,
     complete: vi.fn(),
@@ -415,7 +415,7 @@ describe("createPdfTool", () => {
         images: [],
       });
 
-      const piAi = await import("@mariozechner/pi-ai");
+      const piAi = await import("@earendil-works/pi-ai");
       vi.mocked(piAi.complete).mockResolvedValue({
         role: "assistant",
         stopReason: "stop",
