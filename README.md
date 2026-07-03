@@ -2,8 +2,8 @@
 
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text-dark.png">
-        <img src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-logo-text.png" alt="OpenClaw" width="500">
+        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Flaviosalles29/opensalles/main/docs/assets/openclaw-logo-text-dark.png">
+        <img src="https://raw.githubusercontent.com/Flaviosalles29/opensalles/main/docs/assets/openclaw-logo-text.png" alt="OpenClaw" width="500">
     </picture>
 </p>
 
@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/openclaw/openclaw/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/openclaw/openclaw/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <a href="https://github.com/openclaw/openclaw/releases"><img src="https://img.shields.io/github/v/release/openclaw/openclaw?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="https://github.com/Flaviosalles29/opensalles/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/Flaviosalles29/opensalles/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/Flaviosalles29/opensalles/releases"><img src="https://img.shields.io/github/v/release/Flaviosalles29/opensalles?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="https://discord.gg/clawd"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
@@ -94,7 +94,7 @@ Details: [Development channels](https://docs.openclaw.ai/install/development-cha
 Prefer `pnpm` for builds from source. Bun is optional for running TypeScript directly.
 
 ```bash
-git clone https://github.com/openclaw/openclaw.git
+git clone https://github.com/Flaviosalles29/opensalles.git
 cd openclaw
 
 pnpm install
@@ -136,7 +136,7 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=openclaw/openclaw&type=date&legend=top-left)](https://www.star-history.com/#openclaw/openclaw&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=Flaviosalles29/opensalles&type=date&legend=top-left)](https://www.star-history.com/#Flaviosalles29/opensalles&type=date&legend=top-left)
 
 ## Everything we built so far
 

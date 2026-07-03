@@ -4,6 +4,7 @@ import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { logWarn } from "../logger.js";
+import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { resolveAssistantStreamDeltaText } from "./agent-event-assistant-text.js";
 import {
@@ -14,7 +15,13 @@ import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import { sendJson, setSseHeaders, writeDone } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
-import { resolveAgentIdForRequest, resolveSessionKey } from "./http-utils.js";
+import {
+  isGatewayAgentRouteModel,
+  resolveAgentIdForRequest,
+  resolveRequestedModel,
+  resolveRequestedProvider,
+  resolveSessionKey,
+} from "./http-utils.js";
 
 type OpenAiHttpOptions = {
   auth: ResolvedGatewayAuth;
@@ -31,7 +38,9 @@ type OpenAiChatMessage = {
 };
 
 type OpenAiChatCompletionRequest = {
+  agentId?: unknown;
   model?: unknown;
+  provider?: unknown;
   stream?: unknown;
   messages?: unknown;
   user?: unknown;
@@ -222,10 +231,19 @@ export async function handleOpenAiHttpRequest(
   const payload = coerceRequest(handled.body);
   const stream = Boolean(payload.stream);
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
+  const provider = typeof payload.provider === "string" ? payload.provider.trim() : undefined;
+  const agentIdOverride =
+    typeof payload.agentId === "string" ? payload.agentId.trim() : undefined;
   const user = typeof payload.user === "string" ? payload.user : undefined;
 
-  const agentId = resolveAgentIdForRequest({ req, model });
+  const agentId =
+    (agentIdOverride ? normalizeAgentId(agentIdOverride) : undefined) ??
+    resolveAgentIdForRequest({ req, model });
   const sessionKey = resolveOpenAiSessionKey({ req, agentId, user });
+  const headerProvider = resolveRequestedProvider(req);
+  const headerModel = resolveRequestedModel(req);
+  const modelOverride = headerModel || (!isGatewayAgentRouteModel(model) ? model : undefined);
+  const providerOverride = headerProvider || provider;
   const prompt = buildAgentPrompt(payload.messages);
   if (!prompt.message) {
     sendJson(res, 400, {
@@ -244,6 +262,12 @@ export async function handleOpenAiHttpRequest(
     sessionKey,
     runId,
   });
+  if (providerOverride) {
+    commandInput.providerOverride = providerOverride;
+  }
+  if (modelOverride) {
+    commandInput.modelOverride = modelOverride;
+  }
 
   if (!stream) {
     try {

@@ -175,6 +175,46 @@ describe("OpenResponses HTTP API (e2e)", () => {
       await ensureResponseConsumed(resModel);
 
       mockAgentOnce([{ text: "hello" }]);
+      const resAgentAndModel = await postResponses(port, {
+        agentId: "beta",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        input: "hi",
+      });
+      expect(resAgentAndModel.status).toBe(200);
+      const optsAgentAndModel = (agentCommand.mock.calls[0] as unknown[] | undefined)?.[0] as
+        | {
+            sessionKey?: string;
+            providerOverride?: string;
+            modelOverride?: string;
+          }
+        | undefined;
+      expect(optsAgentAndModel?.sessionKey ?? "").toMatch(/^agent:beta:/);
+      expect(optsAgentAndModel?.providerOverride).toBe("anthropic");
+      expect(optsAgentAndModel?.modelOverride).toBe("claude-sonnet-4-6");
+      await ensureResponseConsumed(resAgentAndModel);
+
+      mockAgentOnce([{ text: "hello" }]);
+      const resHeaderOverrides = await postResponses(
+        port,
+        { model: "openclaw", input: "hi" },
+        {
+          "x-openclaw-provider": "openai",
+          "x-openclaw-model": "gpt-5.2",
+        },
+      );
+      expect(resHeaderOverrides.status).toBe(200);
+      const optsHeaderOverrides = (agentCommand.mock.calls[0] as unknown[] | undefined)?.[0] as
+        | {
+            providerOverride?: string;
+            modelOverride?: string;
+          }
+        | undefined;
+      expect(optsHeaderOverrides?.providerOverride).toBe("openai");
+      expect(optsHeaderOverrides?.modelOverride).toBe("gpt-5.2");
+      await ensureResponseConsumed(resHeaderOverrides);
+
+      mockAgentOnce([{ text: "hello" }]);
       const resUser = await postResponses(port, {
         user: "alice",
         model: "openclaw",

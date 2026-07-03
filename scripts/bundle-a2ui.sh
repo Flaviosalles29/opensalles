@@ -25,14 +25,61 @@ if [[ ! -d "$A2UI_RENDERER_DIR" || ! -d "$A2UI_APP_DIR" ]]; then
 fi
 
 INPUT_PATHS=(
-  "$ROOT_DIR/package.json"
-  "$ROOT_DIR/pnpm-lock.yaml"
-  "$A2UI_RENDERER_DIR"
-  "$A2UI_APP_DIR"
+  "package.json"
+  "pnpm-lock.yaml"
+  "vendor/a2ui/renderers/lit"
+  "apps/shared/OpenClawKit/Tools/CanvasA2UI"
 )
 
+ensure_node_on_path() {
+  if command -v node >/dev/null 2>&1; then
+    return
+  fi
+  local node_exe="${OPENCLAW_NODE_EXE:-}"
+  if [[ -z "$node_exe" ]] && command -v node.exe >/dev/null 2>&1; then
+    node_exe="$(command -v node.exe)"
+  fi
+  if [[ -z "$node_exe" || ! -f "$node_exe" ]]; then
+    return
+  fi
+
+  local shim_dir="$ROOT_DIR/.tmp/node-shim"
+  mkdir -p "$shim_dir"
+  cat >"$shim_dir/node" <<'SH'
+#!/usr/bin/env bash
+exec "$OPENCLAW_NODE_SHIM_TARGET" "$@"
+SH
+  chmod +x "$shim_dir/node"
+  export OPENCLAW_NODE_SHIM_TARGET="$node_exe"
+  export PATH="$shim_dir:$PATH"
+}
+
+run_node() {
+  ensure_node_on_path
+  if command -v node >/dev/null 2>&1; then
+    node "$@"
+    return
+  fi
+  pnpm exec node "$@"
+}
+
+run_pnpm() {
+  ensure_node_on_path
+  if [[ -n "${OPENCLAW_NODE_EXE:-}" && -n "${OPENCLAW_PNPM_CLI:-}" ]]; then
+    "$OPENCLAW_NODE_EXE" "$OPENCLAW_PNPM_CLI" "$@"
+    return
+  fi
+  if command -v pnpm.cmd >/dev/null 2>&1; then
+    cmd.exe /d /s /c "pnpm.cmd $*"
+    return
+  fi
+  pnpm "$@"
+}
+
 compute_hash() {
-  ROOT_DIR="$ROOT_DIR" node --input-type=module - "${INPUT_PATHS[@]}" <<'NODE'
+  (
+    cd "$ROOT_DIR"
+    run_node --input-type=module - "${INPUT_PATHS[@]}" <<'NODE'
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -74,8 +121,10 @@ for (const filePath of files) {
 
 process.stdout.write(hash.digest("hex"));
 NODE
+  )
 }
 
+ensure_node_on_path
 current_hash="$(compute_hash)"
 if [[ -f "$HASH_FILE" ]]; then
   previous_hash="$(cat "$HASH_FILE")"
@@ -85,11 +134,7 @@ if [[ -f "$HASH_FILE" ]]; then
   fi
 fi
 
-pnpm -s exec tsc -p "$A2UI_RENDERER_DIR/tsconfig.json"
-if command -v rolldown >/dev/null 2>&1; then
-  rolldown -c "$A2UI_APP_DIR/rolldown.config.mjs"
-else
-  pnpm -s dlx rolldown -c "$A2UI_APP_DIR/rolldown.config.mjs"
-fi
+run_pnpm -s exec tsc -p "vendor/a2ui/renderers/lit/tsconfig.json"
+run_pnpm -s dlx rolldown -c "apps/shared/OpenClawKit/Tools/CanvasA2UI/rolldown.config.mjs"
 
 echo "$current_hash" > "$HASH_FILE"

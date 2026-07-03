@@ -24,9 +24,11 @@ import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runWithModelFallback } from "../agents/model-fallback.js";
 import {
   buildAllowedModelSet,
+  inferUniqueProviderFromConfiguredModels,
   isCliProvider,
   modelKey,
   normalizeModelRef,
+  parseModelRef,
   normalizeProviderId,
   resolveConfiguredModelRef,
   resolveDefaultModelForAgent,
@@ -709,6 +711,41 @@ export async function agentCommand(
         provider = normalizedStored.provider;
         model = normalizedStored.model;
       }
+    }
+    const explicitProviderOverride = opts.providerOverride?.trim();
+    const explicitModelOverride = opts.modelOverride?.trim();
+    if (explicitProviderOverride || explicitModelOverride) {
+      const parsedExplicit =
+        explicitModelOverride &&
+        parseModelRef(
+          explicitModelOverride,
+          explicitProviderOverride ||
+            inferUniqueProviderFromConfiguredModels({
+              cfg,
+              model: explicitModelOverride,
+            }) ||
+            provider,
+        );
+      const normalizedExplicit =
+        parsedExplicit ??
+        (explicitModelOverride
+          ? normalizeModelRef(explicitProviderOverride || provider, explicitModelOverride)
+          : null);
+      if (!normalizedExplicit) {
+        throw new Error("Invalid model override.");
+      }
+      const key = modelKey(normalizedExplicit.provider, normalizedExplicit.model);
+      if (
+        !isCliProvider(normalizedExplicit.provider, cfg) &&
+        !allowAnyModel &&
+        !allowedModelKeys.has(key)
+      ) {
+        throw new Error(
+          `Model override "${normalizedExplicit.provider}/${normalizedExplicit.model}" is not allowed for this agent.`,
+        );
+      }
+      provider = normalizedExplicit.provider;
+      model = normalizedExplicit.model;
     }
     if (sessionEntry) {
       const authProfileId = sessionEntry.authProfileOverride;

@@ -173,7 +173,9 @@ export const ToolChoiceSchema = z.union([
 
 export const CreateResponseBodySchema = z
   .object({
+    agentId: z.string().optional(),
     model: z.string(),
+    provider: z.string().optional(),
     input: z.union([z.string(), z.array(ItemParamSchema)]),
     instructions: z.string().optional(),
     tools: z.array(ToolDefinitionSchema).optional(),

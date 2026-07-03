@@ -188,6 +188,53 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
 
       {
         mockAgentOnce([{ text: "hello" }]);
+        const res = await postChatCompletions(port, {
+          agentId: "beta",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          messages: [{ role: "user", content: "hi" }],
+        });
+        expect(res.status).toBe(200);
+        const opts = (agentCommand.mock.calls[0] as unknown[] | undefined)?.[0] as
+          | {
+              sessionKey?: string;
+              providerOverride?: string;
+              modelOverride?: string;
+            }
+          | undefined;
+        expect(opts?.sessionKey ?? "").toMatch(/^agent:beta:/);
+        expect(opts?.providerOverride).toBe("anthropic");
+        expect(opts?.modelOverride).toBe("claude-sonnet-4-6");
+        await res.text();
+      }
+
+      {
+        mockAgentOnce([{ text: "hello" }]);
+        const res = await postChatCompletions(
+          port,
+          {
+            model: "openclaw",
+            messages: [{ role: "user", content: "hi" }],
+          },
+          {
+            "x-openclaw-provider": "openai",
+            "x-openclaw-model": "gpt-5.2",
+          },
+        );
+        expect(res.status).toBe(200);
+        const opts = (agentCommand.mock.calls[0] as unknown[] | undefined)?.[0] as
+          | {
+              providerOverride?: string;
+              modelOverride?: string;
+            }
+          | undefined;
+        expect(opts?.providerOverride).toBe("openai");
+        expect(opts?.modelOverride).toBe("gpt-5.2");
+        await res.text();
+      }
+
+      {
+        mockAgentOnce([{ text: "hello" }]);
         const res = await postChatCompletions(
           port,
           { model: "openclaw", messages: [{ role: "user", content: "hi" }] },

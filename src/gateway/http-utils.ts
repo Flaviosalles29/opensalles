@@ -33,6 +33,22 @@ export function resolveAgentIdFromHeader(req: IncomingMessage): string | undefin
   return normalizeAgentId(raw);
 }
 
+export function resolveRequestedProvider(req: IncomingMessage): string | undefined {
+  const raw =
+    getHeader(req, "x-openclaw-provider")?.trim() ||
+    getHeader(req, "x-openclaw-model-provider")?.trim() ||
+    "";
+  return raw || undefined;
+}
+
+export function resolveRequestedModel(req: IncomingMessage): string | undefined {
+  const raw =
+    getHeader(req, "x-openclaw-model")?.trim() ||
+    getHeader(req, "x-openclaw-model-id")?.trim() ||
+    "";
+  return raw || undefined;
+}
+
 export function resolveAgentIdFromModel(model: string | undefined): string | undefined {
   const raw = model?.trim();
   if (!raw) {
@@ -47,6 +63,17 @@ export function resolveAgentIdFromModel(model: string | undefined): string | und
     return undefined;
   }
   return normalizeAgentId(agentId);
+}
+
+export function isGatewayAgentRouteModel(model: string | undefined): boolean {
+  const raw = model?.trim();
+  if (!raw) {
+    return false;
+  }
+  if (/^openclaw$/i.test(raw)) {
+    return true;
+  }
+  return resolveAgentIdFromModel(raw) !== undefined;
 }
 
 export function resolveAgentIdForRequest(params: {

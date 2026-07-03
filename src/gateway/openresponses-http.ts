@@ -29,12 +29,19 @@ import {
   type InputImageSource,
 } from "../media/input-files.js";
 import { defaultRuntime } from "../runtime.js";
+import { normalizeAgentId } from "../routing/session-key.js";
 import { resolveAssistantStreamDeltaText } from "./agent-event-assistant-text.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import { sendJson, setSseHeaders, writeDone } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
-import { resolveAgentIdForRequest, resolveSessionKey } from "./http-utils.js";
+import {
+  isGatewayAgentRouteModel,
+  resolveAgentIdForRequest,
+  resolveRequestedModel,
+  resolveRequestedProvider,
+  resolveSessionKey,
+} from "./http-utils.js";
 import {
   CreateResponseBodySchema,
   type CreateResponseBody,
@@ -238,6 +245,8 @@ async function runResponsesAgentCommand(params: {
   images: ImageContent[];
   clientTools: ClientToolDefinition[];
   extraSystemPrompt: string;
+  providerOverride?: string;
+  modelOverride?: string;
   streamParams: { maxTokens: number } | undefined;
   sessionKey: string;
   runId: string;
@@ -249,6 +258,8 @@ async function runResponsesAgentCommand(params: {
       images: params.images.length > 0 ? params.images : undefined,
       clientTools: params.clientTools.length > 0 ? params.clientTools : undefined,
       extraSystemPrompt: params.extraSystemPrompt || undefined,
+      providerOverride: params.providerOverride,
+      modelOverride: params.modelOverride,
       streamParams: params.streamParams ?? undefined,
       sessionKey: params.sessionKey,
       runId: params.runId,
@@ -301,6 +312,8 @@ export async function handleOpenResponsesHttpRequest(
   const payload: CreateResponseBody = parseResult.data;
   const stream = Boolean(payload.stream);
   const model = payload.model;
+  const provider = payload.provider?.trim() || undefined;
+  const agentIdOverride = payload.agentId?.trim() || undefined;
   const user = payload.user;
 
   // Extract images + files from input (Phase 2)
@@ -412,8 +425,14 @@ export async function handleOpenResponsesHttpRequest(
     });
     return true;
   }
-  const agentId = resolveAgentIdForRequest({ req, model });
+  const agentId =
+    (agentIdOverride ? normalizeAgentId(agentIdOverride) : undefined) ??
+    resolveAgentIdForRequest({ req, model });
   const sessionKey = resolveOpenResponsesSessionKey({ req, agentId, user });
+  const headerProvider = resolveRequestedProvider(req);
+  const headerModel = resolveRequestedModel(req);
+  const modelOverride = headerModel || (!isGatewayAgentRouteModel(model) ? model : undefined);
+  const providerOverride = headerProvider || provider;
 
   // Build prompt from input
   const prompt = buildAgentPrompt(payload.input);
@@ -456,6 +475,8 @@ export async function handleOpenResponsesHttpRequest(
         images,
         clientTools: resolvedClientTools,
         extraSystemPrompt,
+        providerOverride,
+        modelOverride,
         streamParams,
         sessionKey,
         runId: responseId,
@@ -684,12 +705,14 @@ export async function handleOpenResponsesHttpRequest(
   void (async () => {
     try {
       const result = await runResponsesAgentCommand({
-        message: prompt.message,
-        images,
-        clientTools: resolvedClientTools,
-        extraSystemPrompt,
-        streamParams,
-        sessionKey,
+      message: prompt.message,
+      images,
+      clientTools: resolvedClientTools,
+      extraSystemPrompt,
+      providerOverride,
+      modelOverride,
+      streamParams,
+      sessionKey,
         runId: responseId,
         deps,
       });
