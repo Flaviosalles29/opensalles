@@ -1,6 +1,6 @@
 ---
 title: "OpenSalles Overview"
-summary: "What the project does, how the router works, and how AI providers are selected"
+summary: "What OpenSalles does, how the router works, and how AI providers are selected"
 read_when:
   - Asking what OpenSalles can do after setup
   - Understanding the router, agents, and API wiring
@@ -50,7 +50,7 @@ OpenSalles can use multiple AI providers inside the same installation. The selec
 3. resolve the model for that provider
 4. fall back to defaults if nothing is specified
 
-For API callers, the gateway now accepts explicit routing hints so you can choose the AI directly. The HTTP layer supports `agentId`, `provider`, and `model`, and the request headers mirror those choices.
+For API callers, the gateway accepts explicit routing hints so you can choose the AI directly. The HTTP layer supports `agentId`, `provider`, and `model`, and the request headers mirror those choices.
 
 ## How the API connection works
 
